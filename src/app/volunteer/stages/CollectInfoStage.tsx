@@ -1,11 +1,11 @@
 import { Field, Toggle } from './components'
 import styles from './stages.module.css'
-import { zLocation } from '@/contracts/data'
 import { dateService } from '@/services'
 import { useFetch, useInit } from '@/util/hooks'
 import Link from 'next/link'
 import phone from 'phone'
 import { Country, isValidCountryPostalCode } from 'postal-code-validator'
+import { zLocation } from 'pv-contracts/data'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 export interface IOnboardingForm {

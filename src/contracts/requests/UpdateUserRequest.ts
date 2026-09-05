@@ -6,7 +6,7 @@ import {
     zShirtSize,
     zMembershipDeliverableStatus,
     zMembershipFulfillmentStatus,
-} from '@/contracts/data'
+} from 'pv-contracts/data'
 import z from 'zod'
 
 export const zUpdateUserRequest = zMutationRequest
