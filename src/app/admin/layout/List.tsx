@@ -293,8 +293,8 @@ interface SearchInputProps {
 }
 
 function SearchInput({ query, onSearch, filterContent }: SearchInputProps) {
-    const handleSearch = (e: ChangeEvent<HTMLInputElement>) => {
-        onSearch(e.target.value)
+    const handleSearch: React.InputEventHandler = (e) => {
+        onSearch((e.target as HTMLInputElement).value)
     }
 
     return (
