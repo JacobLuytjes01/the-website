@@ -1,3 +1,4 @@
+import { MembershipDeliverableStatus, UserAddress } from '@/contracts/data'
 import { MembershipsResponsePacket } from '@/contracts/responses'
 
 export const membershipTiers = [
@@ -24,6 +25,8 @@ export interface Member {
     userId?: number
     firstName?: string
     lastName?: string
+    userFirstName?: string
+    userLastName?: string
     userName?: string
     donorName?: string
     discordUsername?: string
@@ -42,6 +45,7 @@ export interface Member {
     zip?: string
     country?: string
     userAddress?: string
+    userAddressParts?: UserAddress
     donorAddress?: string
     shirtSize?: ShirtSize
 
@@ -60,6 +64,8 @@ export interface Member {
     labelPrinted?: boolean
     cardPacked?: boolean
     benefitShipped?: boolean
+    membershipCardStatus?: MembershipDeliverableStatus
+    membershipMerchStatus?: MembershipDeliverableStatus
     packageShipped?: PackageShipped
 
     userMatched?: boolean

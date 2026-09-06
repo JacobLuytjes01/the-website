@@ -14,22 +14,90 @@ import {
     ToggleGroup,
 } from '@/components/common'
 import { Table, Column, ColumnEntry } from '@/components/common/table'
-import { User, UserAddress, zUser } from '@/contracts/data'
+import {
+    MembershipDeliverableStatus,
+    ShirtSize as ApiShirtSize,
+    User,
+    UserAddress,
+    zUser,
+} from '@/contracts/data'
+import {
+    UpdateMembershipRequest,
+    UpdateUserAddressRequest,
+    UpdateUserRequest,
+} from '@/contracts/requests'
 import {
     MembershipsResponsePacket,
     zMembershipsResponsePacket,
     zPaginatedResponse,
 } from '@/contracts/responses'
 import { cn } from '@/util'
-import { useFetch } from '@/util/hooks'
-import { skipToken, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useCurrentUser, useFetch } from '@/util/hooks'
+import {
+    skipToken,
+    useInfiniteQuery,
+    useMutation,
+    useQuery,
+    useQueryClient,
+} from '@tanstack/react-query'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FaEdit, FaSave, FaTrashAlt } from 'react-icons/fa'
-import { FiCheck, FiX } from 'react-icons/fi'
+import { FiCheck, FiChevronDown, FiX } from 'react-icons/fi'
 
 const HISTORY_STALE_TIME = 5 * 60 * 1000
 const HISTORY_LIMIT = 5
+
+type AddressField = 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'zip'
+type MembershipTableMode = 'view' | 'edit'
+
+type AddressDraft = Partial<Record<AddressField, string>>
+
+type MemberEdits = Partial<
+    Pick<Member, 'userEmail' | 'userPhone' | 'userFirstName' | 'userLastName'>
+> & {
+    shirtSize?: ShirtSize | null
+    packageShipped?: PackageShipped | null
+    address?: AddressDraft
+    nameConfirmed?: boolean
+    addressConfirmed?: boolean
+    discordConfirmed?: boolean
+    cardPrinted?: boolean
+    labelPrinted?: boolean
+    cardPacked?: boolean
+    benefitShipped?: boolean
+}
+
+const hasNameDraftChange = (member: Member, draft: MemberEdits) =>
+    [
+        ['userFirstName', member.userFirstName],
+        ['userLastName', member.userLastName],
+    ].some(([key, original]) => {
+        const value = draft[key as 'userFirstName' | 'userLastName']
+        return value != null && value.trim() !== (original ?? '').trim()
+    })
+
+const hasAddressDraftChange = (member: Member, draft: MemberEdits) =>
+    draft.address != null &&
+    addressFields.some(({ key }) => {
+        const value = draft.address?.[key]
+        return (
+            value != null &&
+            value.trim() !== (member.userAddressParts?.[key] ?? '').trim()
+        )
+    })
+
+interface EditController {
+    draftOf: (member: Member) => MemberEdits
+    update: (member: Member, patch: MemberEdits) => void
+}
+
+interface PendingUpdate {
+    donorEmail: string
+    userId?: number
+    user?: UpdateUserRequest
+    membership?: UpdateMembershipRequest
+}
 
 const Check = () => <FiCheck strokeWidth={3} />
 const Cross = () => <FiX strokeWidth={3} />
@@ -45,6 +113,35 @@ const BoolTag = ({ value }: { value?: boolean }) =>
         </span>
     )
 
+const EditableBoolTag = ({
+    value,
+    onToggle,
+}: {
+    value?: boolean
+    onToggle: () => void
+}) => (
+    <span
+        className={cn(
+            styles.tag,
+            value ? styles.tagGreen : styles.tagRed,
+            styles.editableBoolTag
+        )}
+        aria-pressed={value === true}
+        aria-label={value ? 'Name confirmed' : 'Name not confirmed'}
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onToggle()
+            }
+        }}
+    >
+        {value ? <Check /> : <Cross />}
+    </span>
+)
+
 const shirtSizeClass: Record<ShirtSize, string> = {
     XS: styles.tagRed,
     S: styles.tagOrange,
@@ -52,6 +149,85 @@ const shirtSizeClass: Record<ShirtSize, string> = {
     L: styles.tagGreen,
     XL: styles.tagBlue,
     XXL: styles.tagPurple,
+}
+
+const shirtSizes: ShirtSize[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+
+const toApiShirtSize = (size: ShirtSize): ApiShirtSize =>
+    size === 'XXL' ? ApiShirtSize.DoubleExtraLarge : (size as ApiShirtSize)
+
+const ShirtSizeValue = ({ member }: { member: Member }) =>
+    member.shirtSize ? (
+        <span className={cn(styles.tag, shirtSizeClass[member.shirtSize])}>
+            {member.shirtSize}
+        </span>
+    ) : (
+        <span className={cn(styles.tag, styles.tagGray)}>N/A</span>
+    )
+
+const ShirtSizeEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    const draft = edit.draftOf(member).shirtSize
+    const value = (draft === undefined ? member.shirtSize : draft) ?? ''
+
+    return (
+        <DropdownButton
+            buttonVariant="plain"
+            aria-label="Shirt size"
+            className={cn(
+                styles.tag,
+                styles.editSelectTag,
+                value === '' ? styles.tagGray : shirtSizeClass[value],
+                draft !== undefined &&
+                    (draft ?? undefined) !== member.shirtSize &&
+                    styles.editSelectDirty
+            )}
+            menu={({ closeDropdown }) => (
+                <DropdownOverlay
+                    className={styles.editSelectOverlay}
+                    bodyClassName={styles.editSelectMenu}
+                    style={{ left: 0, right: 'auto' }}
+                    body={[null, ...shirtSizes].map((size) => (
+                        <button
+                            key={size ?? 'none'}
+                            type="button"
+                            aria-pressed={(size ?? '') === value}
+                            className={styles.editSelectOption}
+                            onClick={() => {
+                                edit.update(member, { shirtSize: size })
+                                closeDropdown()
+                            }}
+                        >
+                            <span
+                                className={cn(
+                                    styles.tag,
+                                    size == null
+                                        ? styles.tagGray
+                                        : shirtSizeClass[size]
+                                )}
+                            >
+                                {size ?? 'N/A'}
+                            </span>
+                        </button>
+                    ))}
+                />
+            )}
+        >
+            <span className={styles.editSelectLabel}>
+                {value === '' ? 'N/A' : value}
+            </span>
+            <FiChevronDown
+                className={styles.editSelectChevron}
+                strokeWidth={3}
+                aria-hidden="true"
+            />
+        </DropdownButton>
+    )
 }
 
 const membershipTierClass: Record<MembershipTier, string> = {
@@ -67,6 +243,98 @@ const packageShippedClass: Record<PackageShipped, string> = {
     Returned: styles.tagYellow,
     'Not Received': styles.tagDarkRed,
     Canceled: styles.tagBlue,
+}
+
+const packageShippedOptions: PackageShipped[] = [
+    'Yes',
+    'No',
+    'Returned',
+    'Not Received',
+    'Canceled',
+]
+
+const PackageShippedValue = ({ member }: { member: Member }) =>
+    member.packageShipped ? (
+        <span
+            className={cn(
+                styles.tag,
+                styles.tagWide,
+                packageShippedClass[member.packageShipped]
+            )}
+        >
+            {member.packageShipped}
+        </span>
+    ) : (
+        '—'
+    )
+
+const PackageShippedEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    const draft = edit.draftOf(member).packageShipped
+    const value = (draft === undefined ? member.packageShipped : draft) ?? ''
+
+    return (
+        <DropdownButton
+            buttonVariant="plain"
+            aria-label="Package shipped"
+            className={cn(
+                styles.tag,
+                styles.tagWide,
+                styles.editPackageShippedTag,
+                value === '' ? styles.tagGray : packageShippedClass[value],
+                draft !== undefined &&
+                    (draft ?? undefined) !== member.packageShipped &&
+                    styles.editSelectDirty
+            )}
+            menu={({ closeDropdown }) => (
+                <DropdownOverlay
+                    label="Status"
+                    onClose={closeDropdown}
+                    className={styles.editSelectOverlay}
+                    bodyClassName={styles.editSelectMenu}
+                    style={{ left: 0, right: 'auto' }}
+                    body={packageShippedOptions.map((status) => (
+                        <button
+                            key={status}
+                            type="button"
+                            aria-pressed={status === value}
+                            className={styles.editSelectOption}
+                            onClick={() => {
+                                edit.update(member, {
+                                    packageShipped: status,
+                                })
+                                closeDropdown()
+                            }}
+                        >
+                            <span
+                                className={cn(
+                                    styles.tag,
+                                    styles.tagWide,
+                                    packageShippedClass[status]
+                                )}
+                            >
+                                {status}
+                            </span>
+                        </button>
+                    ))}
+                />
+            )}
+        >
+            <span className={styles.editPackageShippedLabel}>
+                {value === '' ? 'N/A' : value}
+            </span>
+            <FiChevronDown
+                className={styles.editPackageShippedChevron}
+                strokeWidth={3}
+                aria-hidden="true"
+            />
+        </DropdownButton>
+    )
 }
 
 const formatPhone = (phone?: string) => {
@@ -96,9 +364,16 @@ const formatHistoryDate = (value: Date) =>
 
 type UserHistoryEntry = NonNullable<User['history']>[number]
 
-type DescribeChange = (
-    update: UserHistoryEntry,
-    previous: UserHistoryEntry | undefined
+interface HistoryEntry {
+    historyId: number
+    historyWhenUpdatedUtc: Date
+}
+
+const selectUserHistory = (user: User) => user.history ?? []
+
+type DescribeChange<T extends HistoryEntry = UserHistoryEntry> = (
+    update: T,
+    previous: T | undefined
 ) => { label: string; value: string } | undefined
 
 const describeNameChange: DescribeChange = (update, previous) => {
@@ -162,16 +437,18 @@ const describeAddressChange: DescribeChange = (update, previous) => {
     return { label: `Address ${previous ? 'Changed' : 'Set'}`, value }
 }
 
-const FieldHistory = ({
+const FieldHistory = <T extends HistoryEntry>({
     member,
     title,
     emptyMessage,
+    selectHistory,
     describeChange,
 }: {
     member: Member
     title: string
     emptyMessage: string
-    describeChange: DescribeChange
+    selectHistory: (user: User) => T[]
+    describeChange: DescribeChange<T>
 }) => {
     const { ready, onGet } = useFetch()
     const userId = member.userId
@@ -191,7 +468,8 @@ const FieldHistory = ({
     })
 
     const history = useMemo(() => {
-        const ascending = (userQuery.data?.history ?? [])
+        const user = userQuery.data
+        const ascending = (user ? selectHistory(user) : [])
             .slice()
             .sort(
                 (a, b) =>
@@ -199,14 +477,22 @@ const FieldHistory = ({
                     b.historyWhenUpdatedUtc.getTime()
             )
 
-        return ascending
-            .flatMap((update, index) => {
-                const change = describeChange(update, ascending[index - 1])
-                return change ? [{ update, ...change }] : []
-            })
-            .reverse()
-            .slice(0, HISTORY_LIMIT)
-    }, [userQuery.data, describeChange])
+        const entries: {
+            update: T
+            label: string
+            value: string
+        }[] = []
+        let previous: T | undefined
+
+        for (const update of ascending) {
+            const change = describeChange(update, previous)
+            if (!change) continue
+            entries.push({ update, ...change })
+            previous = update
+        }
+
+        return entries.reverse().slice(0, HISTORY_LIMIT)
+    }, [userQuery.data, selectHistory, describeChange])
 
     const statusMessage = (() => {
         if (userId == null) return 'No linked user'
@@ -293,6 +579,53 @@ const PhoneValue = ({ member }: { member: Member }) => (
     </span>
 )
 
+const normalizePhone = (phone: string) => phone.replace(/\D/g, '')
+
+const isValidPhone = (phone: string) => {
+    const digits = normalizePhone(phone)
+    return digits.length === 0 || digits.length >= 10
+}
+
+const PhoneEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    if (member.userId == null)
+        return <span className={styles.editUnavailable}>No linked user</span>
+
+    const original = member.userPhone ?? ''
+    const draft = edit.draftOf(member).userPhone
+    const invalid = !isValidPhone(draft ?? original)
+
+    return (
+        <input
+            type="tel"
+            inputMode="numeric"
+            maxLength={15}
+            aria-label="User phone"
+            aria-invalid={invalid}
+            className={cn(
+                styles.editInput,
+                !invalid &&
+                    draft != null &&
+                    normalizePhone(draft) !== normalizePhone(original) &&
+                    styles.editInputDirty,
+                invalid && styles.editInputInvalid
+            )}
+            value={draft ?? original}
+            placeholder={member.donorPhone ?? 'Add phone'}
+            onChange={(event) =>
+                edit.update(member, {
+                    userPhone: normalizePhone(event.target.value),
+                })
+            }
+        />
+    )
+}
+
 const PhoneMenu = ({
     member,
     closeDropdown,
@@ -337,6 +670,7 @@ const PhoneMenu = ({
                         member={member}
                         title="Recent Phone Changes"
                         emptyMessage="No phone changes found"
+                        selectHistory={selectUserHistory}
                         describeChange={describePhoneChange}
                     />
                 </>
@@ -361,6 +695,38 @@ const EmailValue = ({ member }: { member: Member }) => (
         {member.userEmail ?? member.discordEmail ?? member.donorEmail ?? '—'}
     </span>
 )
+
+const EmailEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    if (member.userId == null)
+        return <span className={styles.editUnavailable}>No linked user</span>
+
+    const original = member.userEmail ?? ''
+    const value = edit.draftOf(member).userEmail ?? original
+
+    return (
+        <input
+            type="email"
+            aria-label="User email"
+            className={cn(
+                styles.editInput,
+                value.trim() !== original && styles.editInputDirty
+            )}
+            value={value}
+            placeholder={
+                member.discordEmail ?? member.donorEmail ?? 'Add email'
+            }
+            onChange={(event) =>
+                edit.update(member, { userEmail: event.target.value })
+            }
+        />
+    )
+}
 
 const EmailMenu = ({
     member,
@@ -443,6 +809,7 @@ const EmailMenu = ({
                         member={member}
                         title="Recent Email Changes"
                         emptyMessage="No email changes found"
+                        selectHistory={selectUserHistory}
                         describeChange={describeEmailChange}
                     />
                 </>
@@ -533,6 +900,7 @@ const NameMenu = ({
                         member={member}
                         title="Recent Name Changes"
                         emptyMessage="No name changes found"
+                        selectHistory={selectUserHistory}
                         describeChange={describeNameChange}
                     />
                 </>
@@ -547,6 +915,63 @@ const NameValue = ({ member }: { member: Member }) => (
         <ConfirmedBadge label="Name" confirmed={member.nameConfirmed} />
     </span>
 )
+
+const NameEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    if (member.userId == null)
+        return <span className={styles.editUnavailable}>No linked user</span>
+
+    const draft = edit.draftOf(member)
+    const fields = [
+        {
+            key: 'userFirstName' as const,
+            label: 'User first name',
+            original: member.userFirstName ?? '',
+            placeholder: member.firstName ?? 'First name',
+        },
+        {
+            key: 'userLastName' as const,
+            label: 'User last name',
+            original: member.userLastName ?? '',
+            placeholder: member.lastName ?? 'Last name',
+        },
+    ]
+
+    return (
+        <div className={styles.editNameRow}>
+            {fields.map(({ key, label, original, placeholder }) => {
+                const value = draft[key] ?? original
+
+                return (
+                    <input
+                        key={key}
+                        type="text"
+                        aria-label={label}
+                        maxLength={100}
+                        className={cn(
+                            styles.editInput,
+                            styles.editNameInput,
+                            value.trim() !== original.trim() &&
+                                styles.editInputDirty
+                        )}
+                        value={value}
+                        placeholder={placeholder}
+                        onChange={(event) =>
+                            edit.update(member, {
+                                [key]: event.target.value,
+                            })
+                        }
+                    />
+                )
+            })}
+        </div>
+    )
+}
 
 const normalizeDiscordHandle = (handle: string) =>
     handle.trim().replace(/^@/, '')
@@ -668,6 +1093,114 @@ const AddressValue = ({ member }: { member: Member }) => (
     </span>
 )
 
+const addressFields: {
+    key: AddressField
+    label: string
+    placeholder: (member: Member) => string
+    maxLength: number
+    className: string
+}[] = [
+    {
+        key: 'addressLine1',
+        label: 'Address line 1',
+        placeholder: (m) => m.address1 ?? 'Address line 1',
+        maxLength: 100,
+        className: styles.editAddressLine1,
+    },
+    {
+        key: 'addressLine2',
+        label: 'Address line 2',
+        placeholder: () => 'Apt, suite',
+        maxLength: 100,
+        className: styles.editAddressLine2,
+    },
+    {
+        key: 'city',
+        label: 'City',
+        placeholder: (m) => m.city ?? 'City',
+        maxLength: 50,
+        className: styles.editAddressCity,
+    },
+    {
+        key: 'state',
+        label: 'State',
+        placeholder: (m) => m.state ?? 'ST',
+        maxLength: 2,
+        className: styles.editAddressState,
+    },
+    {
+        key: 'zip',
+        label: 'Zip',
+        placeholder: (m) => m.zip?.slice(0, 5) ?? 'Zip',
+        maxLength: 5,
+        className: styles.editAddressZip,
+    },
+]
+
+const isValidAddressField = (field: AddressField, value: string) => {
+    const trimmed = value.trim()
+    if (trimmed === '') return true
+    if (field === 'state') return /^[A-Za-z]{2}$/.test(trimmed)
+    if (field === 'zip') return /^\d{5}$/.test(trimmed)
+    return true
+}
+
+const isValidAddressDraft = (draft: AddressDraft) =>
+    addressFields.every(({ key }) => isValidAddressField(key, draft[key] ?? ''))
+
+const AddressEdit = ({
+    member,
+    edit,
+}: {
+    member: Member
+    edit: EditController
+}) => {
+    if (member.userId == null)
+        return <span className={styles.editUnavailable}>No linked user</span>
+
+    const draft = edit.draftOf(member).address ?? {}
+
+    return (
+        <div className={styles.editAddressRow}>
+            {addressFields.map(
+                ({ key, label, placeholder, maxLength, className }) => {
+                    const original = member.userAddressParts?.[key] ?? ''
+                    const value = draft[key] ?? original
+                    const invalid = !isValidAddressField(key, value)
+
+                    return (
+                        <input
+                            key={key}
+                            aria-label={label}
+                            aria-invalid={invalid}
+                            maxLength={maxLength}
+                            className={cn(
+                                styles.editInput,
+                                styles.editAddressInput,
+                                className,
+                                !invalid &&
+                                    value.trim() !== original.trim() &&
+                                    styles.editInputDirty,
+                                invalid && styles.editInputInvalid
+                            )}
+                            value={value}
+                            placeholder={placeholder(member)}
+                            onChange={(event) =>
+                                edit.update(member, {
+                                    address: {
+                                        ...draft,
+                                        [key]: event.target.value,
+                                    },
+                                })
+                            }
+                        />
+                    )
+                }
+            )}
+        </div>
+    )
+}
+
 const AddressMenu = ({
     member,
     closeDropdown,
@@ -711,6 +1244,7 @@ const AddressMenu = ({
                         member={member}
                         title="Recent Address Changes"
                         emptyMessage="No address changes found"
+                        selectHistory={selectUserHistory}
                         describeChange={describeAddressChange}
                     />
                 </>
@@ -786,6 +1320,8 @@ const mapPacketToMember = (
         userId: user?.id,
         firstName: donor.firstname,
         lastName: donor.lastname,
+        userFirstName: user?.firstName ?? undefined,
+        userLastName: user?.lastName ?? undefined,
         userName,
         donorName,
         discordUsername: user?.discordUsers?.[0]?.username,
@@ -803,6 +1339,7 @@ const mapPacketToMember = (
         zip: donor.zip ?? undefined,
         country: donor.country ?? undefined,
         userAddress,
+        userAddressParts: user?.address,
         donorAddress,
         shirtSize:
             membership?.shirtSize === '2XL'
@@ -821,7 +1358,11 @@ const mapPacketToMember = (
         addressConfirmed:
             membership?.addressConfirmed ?? user?.addressConfirmed ?? undefined,
         cardPrinted: cardStatus != null ? cardStatus >= 2 : undefined,
+        labelPrinted: merchStatus != null ? merchStatus >= 2 : undefined,
+        cardPacked: merchStatus != null ? merchStatus >= 3 : undefined,
         benefitShipped: merchStatus != null ? merchStatus >= 3 : undefined,
+        membershipCardStatus: cardStatus,
+        membershipMerchStatus: merchStatus,
         packageShipped:
             merchStatus === 5
                 ? 'Returned'
@@ -859,27 +1400,75 @@ const statusDotColor = (m: Member, col: Column<Member>): string => {
         : 'rgba(255, 95, 75, 0.6)'
 }
 
-const confirmedColumns: Column<Member>[] = [
+const confirmedColumns = (edit: EditController): Column<Member>[] => [
     {
         key: 'nameConfirmed',
         header: 'Name Confirmed',
         width: '5rem',
+        allowOverflow: true,
         sortValue: (m: Member) => (m.nameConfirmed ? 1 : 0),
         render: (m: Member) => <BoolTag value={m.nameConfirmed} />,
+        renderEdit: (m: Member) => {
+            const memberDraft = edit.draftOf(m)
+            const value =
+                memberDraft.nameConfirmed ??
+                (hasNameDraftChange(m, memberDraft)
+                    ? false
+                    : (m.nameConfirmed ?? false))
+
+            return (
+                <EditableBoolTag
+                    value={value}
+                    onToggle={() => edit.update(m, { nameConfirmed: !value })}
+                />
+            )
+        },
     },
     {
         key: 'discordConfirmed',
         header: 'Discord Confirmed',
         width: '5rem',
+        allowOverflow: true,
         sortValue: (m: Member) => (m.discordConfirmed ? 1 : 0),
         render: (m: Member) => <BoolTag value={m.discordConfirmed} />,
+        renderEdit: (m: Member) => {
+            const draft = edit.draftOf(m).discordConfirmed
+            const value = draft ?? m.discordConfirmed ?? false
+
+            return (
+                <EditableBoolTag
+                    value={value}
+                    onToggle={() =>
+                        edit.update(m, { discordConfirmed: !value })
+                    }
+                />
+            )
+        },
     },
     {
         key: 'addressConfirmed',
         header: 'Address Confirmed',
         width: '5rem',
+        allowOverflow: true,
         sortValue: (m: Member) => (m.addressConfirmed ? 1 : 0),
         render: (m: Member) => <BoolTag value={m.addressConfirmed} />,
+        renderEdit: (m: Member) => {
+            const memberDraft = edit.draftOf(m)
+            const value =
+                memberDraft.addressConfirmed ??
+                (hasAddressDraftChange(m, memberDraft)
+                    ? false
+                    : (m.addressConfirmed ?? false))
+
+            return (
+                <EditableBoolTag
+                    value={value}
+                    onToggle={() =>
+                        edit.update(m, { addressConfirmed: !value })
+                    }
+                />
+            )
+        },
     },
 ]
 
@@ -904,7 +1493,8 @@ const buildColumns = (
     showConfirmed: boolean,
     showFulfilled: boolean,
     showStatus: boolean,
-    showRowNumber: boolean
+    showRowNumber: boolean,
+    edit: EditController
 ): ColumnEntry<Member>[] => [
     ...(showRowNumber
         ? [
@@ -960,50 +1550,103 @@ const buildColumns = (
               }
             : undefined,
         columns: [
-            ...(showConfirmed ? confirmedColumns : ([] as Column<Member>[])),
+            ...(showConfirmed
+                ? confirmedColumns(edit)
+                : ([] as Column<Member>[])),
             {
                 key: 'cardPrinted',
                 header: 'Card Printed',
                 width: '5rem',
+                allowOverflow: true,
                 sortValue: (m: Member) => (m.cardPrinted ? 1 : 0),
                 render: (m: Member) => <BoolTag value={m.cardPrinted} />,
+                renderEdit: (m: Member) => {
+                    const draft = edit.draftOf(m).cardPrinted
+                    const value = draft ?? m.cardPrinted ?? false
+
+                    return (
+                        <EditableBoolTag
+                            value={value}
+                            onToggle={() =>
+                                edit.update(m, { cardPrinted: !value })
+                            }
+                        />
+                    )
+                },
             },
             {
                 key: 'labelPrinted',
                 header: 'Label Printed',
                 width: '5rem',
+                allowOverflow: true,
                 sortValue: (m: Member) => (m.labelPrinted ? 1 : 0),
                 render: (m: Member) => <BoolTag value={m.labelPrinted} />,
+                renderEdit: (m: Member) => {
+                    const draft = edit.draftOf(m).labelPrinted
+                    const value = draft ?? m.labelPrinted ?? false
+
+                    return (
+                        <EditableBoolTag
+                            value={value}
+                            onToggle={() =>
+                                edit.update(m, { labelPrinted: !value })
+                            }
+                        />
+                    )
+                },
             },
             {
                 key: 'cardPacked',
-                header: 'Packed',
+                header: 'Items Packed',
                 width: '5rem',
+                allowOverflow: true,
                 sortValue: (m: Member) => (m.cardPacked ? 1 : 0),
                 render: (m: Member) => <BoolTag value={m.cardPacked} />,
+                renderEdit: (m: Member) => {
+                    const draft = edit.draftOf(m).cardPacked
+                    const value = draft ?? m.cardPacked ?? false
+
+                    return (
+                        <EditableBoolTag
+                            value={value}
+                            onToggle={() =>
+                                edit.update(m, { cardPacked: !value })
+                            }
+                        />
+                    )
+                },
             },
             {
                 key: 'benefitShipped',
                 header: 'Benefit Shipped',
                 width: '5rem',
+                allowOverflow: true,
                 sortValue: (m: Member) => (m.benefitShipped ? 1 : 0),
                 render: (m: Member) => <BoolTag value={m.benefitShipped} />,
+                renderEdit: (m: Member) => {
+                    const draft = edit.draftOf(m).benefitShipped
+                    const value = draft ?? m.benefitShipped ?? false
+
+                    return (
+                        <EditableBoolTag
+                            value={value}
+                            onToggle={() =>
+                                edit.update(m, { benefitShipped: !value })
+                            }
+                        />
+                    )
+                },
             },
             {
                 key: 'packageShipped',
                 header: 'Package Shipped',
                 width: '7rem',
+                allowOverflow: true,
                 sortValue: (m: Member) => m.packageShipped ?? '',
-                render: (m: Member) =>
-                    m.packageShipped ? (
-                        <span
-                            className={`${styles.tag} ${styles.tagWide} ${packageShippedClass[m.packageShipped]}`}
-                        >
-                            {m.packageShipped}
-                        </span>
-                    ) : (
-                        '—'
-                    ),
+                render: (m: Member) => <PackageShippedValue member={m} />,
+                renderEdit: (m: Member) => (
+                    <PackageShippedEdit member={m} edit={edit} />
+                ),
             },
         ],
     },
@@ -1015,6 +1658,7 @@ const buildColumns = (
         allowOverflow: true,
         sortValue: (m: Member) => m.userName ?? m.donorName ?? '',
         render: (m: Member) => <NameValue member={m} />,
+        renderEdit: (m: Member) => <NameEdit member={m} edit={edit} />,
         menu: (m: Member, { closeDropdown }) => (
             <NameMenu member={m} closeDropdown={closeDropdown} />
         ),
@@ -1037,6 +1681,7 @@ const buildColumns = (
         allowOverflow: true,
         sortValue: (m: Member) => m.userAddress ?? m.donorAddress ?? '',
         render: (m: Member) => <AddressValue member={m} />,
+        renderEdit: (m: Member) => <AddressEdit member={m} edit={edit} />,
         menu: (m: Member, { closeDropdown }) => (
             <AddressMenu member={m} closeDropdown={closeDropdown} />
         ),
@@ -1054,9 +1699,11 @@ const buildColumns = (
     {
         key: 'phone',
         header: 'Phone',
+        width: '11rem',
         allowOverflow: true,
         sortValue: (m: Member) => m.phone ?? '',
         render: (m: Member) => <PhoneValue member={m} />,
+        renderEdit: (m: Member) => <PhoneEdit member={m} edit={edit} />,
         menu: (m: Member, { closeDropdown }) => (
             <PhoneMenu member={m} closeDropdown={closeDropdown} />
         ),
@@ -1064,9 +1711,11 @@ const buildColumns = (
     {
         key: 'email',
         header: 'Email',
+        width: '14rem',
         allowOverflow: true,
         sortValue: (m: Member) => m.email ?? '',
         render: (m: Member) => <EmailValue member={m} />,
+        renderEdit: (m: Member) => <EmailEdit member={m} edit={edit} />,
         menu: (m: Member, { closeDropdown }) => (
             <EmailMenu member={m} closeDropdown={closeDropdown} />
         ),
@@ -1075,17 +1724,10 @@ const buildColumns = (
         key: 'shirtSize',
         header: 'Shirt',
         width: '5rem',
+        allowOverflow: true,
         sortValue: (m: Member) => m.shirtSize ?? '',
-        render: (m: Member) =>
-            m.shirtSize ? (
-                <span
-                    className={`${styles.tag} ${shirtSizeClass[m.shirtSize]}`}
-                >
-                    {m.shirtSize}
-                </span>
-            ) : (
-                <span className={`${styles.tag} ${styles.tagGray}`}>N/A</span>
-            ),
+        render: (m: Member) => <ShirtSizeValue member={m} />,
+        renderEdit: (m: Member) => <ShirtSizeEdit member={m} edit={edit} />,
     },
 
     {
@@ -1123,22 +1765,50 @@ const buildColumns = (
 ]
 
 export default function Page() {
-    const { ready, onGet } = useFetch()
+    const { ready, onGet, onPatch } = useFetch()
+    const loggedInUser = useCurrentUser()
+    const queryClient = useQueryClient()
     const [showConfirmed, setShowConfirmed] = useState(false)
     const [showFulfilled, setShowFulfilled] = useState(true)
     const [collapseFulfillment, setCollapseFulfillment] = useState(false)
     const [showStatus, setShowStatus] = useState(false)
     const [showRowNumber, setShowRowNumber] = useState(false)
-    const [isEditing, setIsEditing] = useState(false)
+    const [tableMode, setTableMode] = useState<MembershipTableMode>('view')
+    const [edits, setEdits] = useState<Record<string, MemberEdits>>({})
+    const editController = useMemo<EditController>(
+        () => ({
+            draftOf: (member) =>
+                member.donorEmail != null
+                    ? (edits[member.donorEmail] ?? {})
+                    : {},
+            update: (member, patch) => {
+                const donorEmail = member.donorEmail
+                if (donorEmail == null) return
+                setEdits((current) => ({
+                    ...current,
+                    [donorEmail]: { ...current[donorEmail], ...patch },
+                }))
+            },
+        }),
+        [edits]
+    )
     const columns = useMemo(
         () =>
             buildColumns(
                 showConfirmed,
-                showFulfilled,
+                showFulfilled && tableMode === 'view',
                 showStatus,
-                showRowNumber
+                showRowNumber,
+                editController
             ),
-        [showConfirmed, showFulfilled, showStatus, showRowNumber]
+        [
+            showConfirmed,
+            showFulfilled,
+            tableMode,
+            showStatus,
+            showRowNumber,
+            editController,
+        ]
     )
     const collapsedCategories = useMemo(
         () => (collapseFulfillment ? ['Fulfillment'] : []),
@@ -1190,6 +1860,249 @@ export default function Page() {
     )
     const totalEntries = membershipsQuery.data?.pages[0]?.count
 
+    const pendingUpdates = useMemo(
+        () =>
+            members.flatMap((member) => {
+                const donorEmail = member.donorEmail
+                const draft = donorEmail != null ? edits[donorEmail] : undefined
+                if (donorEmail == null || draft == null) return []
+
+                const userRequest: UpdateUserRequest = {}
+
+                if (member.userId != null) {
+                    if (draft.userEmail != null) {
+                        const email = draft.userEmail.trim()
+                        if (email !== (member.userEmail ?? ''))
+                            userRequest.email = email === '' ? null : email
+                    }
+
+                    if (draft.userFirstName != null) {
+                        const firstName = draft.userFirstName.trim()
+                        if (firstName !== (member.userFirstName ?? ''))
+                            userRequest.firstName =
+                                firstName === '' ? null : firstName
+                    }
+
+                    if (draft.userLastName != null) {
+                        const lastName = draft.userLastName.trim()
+                        if (lastName !== (member.userLastName ?? ''))
+                            userRequest.lastName =
+                                lastName === '' ? null : lastName
+                    }
+
+                    if (draft.userPhone != null) {
+                        const phone = normalizePhone(draft.userPhone)
+                        if (phone !== normalizePhone(member.userPhone ?? ''))
+                            userRequest.phone = phone === '' ? null : phone
+                    }
+
+                    if (draft.address != null) {
+                        const addressRequest: UpdateUserAddressRequest = {}
+
+                        for (const { key } of addressFields) {
+                            const value = draft.address[key]
+                            if (value == null) continue
+
+                            const trimmed = value.trim()
+                            const original = (
+                                member.userAddressParts?.[key] ?? ''
+                            ).trim()
+                            if (trimmed === original) continue
+
+                            addressRequest[key] =
+                                trimmed === '' ? null : trimmed
+                        }
+
+                        if (Object.keys(addressRequest).length > 0)
+                            userRequest.address = addressRequest
+                    }
+                }
+
+                const membershipRequest: UpdateMembershipRequest = {}
+
+                if (
+                    draft.shirtSize !== undefined &&
+                    (draft.shirtSize ?? undefined) !== member.shirtSize
+                ) {
+                    const shirtSize =
+                        draft.shirtSize == null
+                            ? null
+                            : toApiShirtSize(draft.shirtSize)
+
+                    if (member.userId != null) userRequest.shirtSize = shirtSize
+                    else membershipRequest.shirtSize = shirtSize
+                }
+
+                if (
+                    draft.nameConfirmed !== undefined &&
+                    draft.nameConfirmed !== member.nameConfirmed
+                )
+                    membershipRequest.nameConfirmed = draft.nameConfirmed
+
+                if (
+                    draft.nameConfirmed === undefined &&
+                    hasNameDraftChange(member, draft) &&
+                    member.nameConfirmed !== false
+                )
+                    membershipRequest.nameConfirmed = false
+
+                if (
+                    draft.addressConfirmed !== undefined &&
+                    draft.addressConfirmed !== member.addressConfirmed
+                )
+                    membershipRequest.addressConfirmed = draft.addressConfirmed
+
+                if (
+                    draft.addressConfirmed === undefined &&
+                    hasAddressDraftChange(member, draft) &&
+                    member.addressConfirmed !== false
+                )
+                    membershipRequest.addressConfirmed = false
+
+                if (
+                    draft.cardPrinted !== undefined &&
+                    draft.cardPrinted !== member.cardPrinted
+                )
+                    membershipRequest.membershipCardStatus = draft.cardPrinted
+                        ? MembershipDeliverableStatus.Printed
+                        : MembershipDeliverableStatus.NotStarted
+
+                if (
+                    draft.packageShipped !== undefined &&
+                    (draft.packageShipped ?? undefined) !==
+                        member.packageShipped
+                ) {
+                    const statusMap: Record<
+                        PackageShipped,
+                        MembershipDeliverableStatus
+                    > = {
+                        Yes: MembershipDeliverableStatus.Recieved,
+                        No: MembershipDeliverableStatus.NotStarted,
+                        Returned: MembershipDeliverableStatus.Returned,
+                        'Not Received': MembershipDeliverableStatus.InTransit,
+                        Canceled: MembershipDeliverableStatus.NotEligible,
+                    }
+                    const membershipMerchStatus =
+                        draft.packageShipped == null
+                            ? undefined
+                            : statusMap[draft.packageShipped]
+                    if (membershipMerchStatus !== undefined) {
+                        membershipRequest.membershipMerchStatus =
+                            membershipMerchStatus
+                    }
+                }
+
+                const merchStatusDraft =
+                    draft.benefitShipped ??
+                    draft.cardPacked ??
+                    draft.labelPrinted
+                if (
+                    merchStatusDraft !== undefined &&
+                    draft.packageShipped === undefined
+                ) {
+                    const labelPrinted =
+                        draft.labelPrinted ?? member.labelPrinted ?? false
+                    const cardPacked =
+                        draft.cardPacked ?? member.cardPacked ?? false
+                    const benefitShipped =
+                        draft.benefitShipped ?? member.benefitShipped ?? false
+                    const membershipMerchStatus =
+                        benefitShipped || cardPacked
+                            ? MembershipDeliverableStatus.InTransit
+                            : labelPrinted
+                              ? MembershipDeliverableStatus.Printed
+                              : MembershipDeliverableStatus.NotStarted
+
+                    if (membershipMerchStatus !== member.membershipMerchStatus)
+                        membershipRequest.membershipMerchStatus =
+                            membershipMerchStatus
+                }
+
+                const linkedUserRequest =
+                    member.userId != null
+                        ? { ...userRequest, ...membershipRequest }
+                        : userRequest
+                const donorMembershipRequest =
+                    member.userId == null ? membershipRequest : undefined
+                const hasUser = Object.keys(linkedUserRequest).length > 0
+                const hasMembership =
+                    donorMembershipRequest != null &&
+                    Object.keys(donorMembershipRequest).length > 0
+                if (!hasUser && !hasMembership) return []
+
+                return [
+                    {
+                        donorEmail,
+                        userId: member.userId,
+                        user: hasUser ? linkedUserRequest : undefined,
+                        membership: hasMembership
+                            ? donorMembershipRequest
+                            : undefined,
+                    },
+                ]
+            }),
+        [members, edits]
+    )
+
+    const hasInvalidEdits = useMemo(
+        () =>
+            Object.values(edits).some(
+                (draft) =>
+                    (draft.userPhone != null &&
+                        !isValidPhone(draft.userPhone)) ||
+                    (draft.address != null &&
+                        !isValidAddressDraft(draft.address))
+            ),
+        [edits]
+    )
+
+    const saveMutation = useMutation({
+        mutationFn: async (updates: PendingUpdate[]) => {
+            const metaData = {
+                dataSource: 'Membership Panel',
+                userWhoUpdatedId: loggedInUser.data?.id,
+            }
+
+            for (const { donorEmail, userId, user, membership } of updates) {
+                if (user && userId != null) {
+                    await onPatch(
+                        '/users/:userId',
+                        { ...user, metaData },
+                        zUser,
+                        { params: { userId } }
+                    )
+                }
+
+                if (membership) {
+                    await onPatch(
+                        '/actblue/donors/:donorEmail/membership',
+                        { ...membership, metaData },
+                        null,
+                        { params: { donorEmail } }
+                    )
+                }
+            }
+        },
+        onSuccess: async () => {
+            setEdits({})
+            setTableMode('view')
+            await Promise.all([
+                queryClient.invalidateQueries({
+                    queryKey: ['/actblue/memberships'],
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['/users/:userId'],
+                }),
+            ])
+        },
+        onError: (error) => console.error(error),
+    })
+
+    const discardEdits = () => {
+        setEdits({})
+        setTableMode('view')
+    }
+
     return (
         <div className={styles.panelContents}>
             <div className={styles.panelHeader}>
@@ -1215,14 +2128,31 @@ export default function Page() {
                     </div>
 
                     <div className={styles.tableToolbar}>
-                        {isEditing ? (
+                        {tableMode === 'edit' ? (
                             <>
+                                <span className={styles.editStatus}>
+                                    {hasInvalidEdits
+                                        ? 'Fix invalid fields to save'
+                                        : pendingUpdates.length === 0
+                                          ? 'No changes'
+                                          : `${pendingUpdates.length} pending change${pendingUpdates.length === 1 ? '' : 's'}`}
+                                </span>
                                 <button
                                     type="button"
                                     className={styles.toolbarButton}
-                                    onClick={() => setIsEditing(false)}
+                                    disabled={
+                                        hasInvalidEdits ||
+                                        pendingUpdates.length === 0 ||
+                                        saveMutation.isPending
+                                    }
+                                    onClick={() =>
+                                        saveMutation.mutate(pendingUpdates)
+                                    }
                                 >
-                                    <FaSave /> Save Changes
+                                    <FaSave />{' '}
+                                    {saveMutation.isPending
+                                        ? 'Saving…'
+                                        : 'Save Changes'}
                                 </button>
                                 <button
                                     type="button"
@@ -1230,7 +2160,8 @@ export default function Page() {
                                         styles.toolbarButton,
                                         styles.discardButton
                                     )}
-                                    onClick={() => setIsEditing(false)}
+                                    disabled={saveMutation.isPending}
+                                    onClick={discardEdits}
                                 >
                                     <FaTrashAlt /> Discard Changes
                                 </button>
@@ -1239,7 +2170,7 @@ export default function Page() {
                             <button
                                 type="button"
                                 className={styles.toolbarButton}
-                                onClick={() => setIsEditing(true)}
+                                onClick={() => setTableMode('edit')}
                             >
                                 <FaEdit /> Edit
                             </button>
@@ -1416,6 +2347,7 @@ export default function Page() {
                         data={members}
                         rowKey={(m) => m.id}
                         collapsedCategories={collapsedCategories}
+                        mode={tableMode}
                         footer={
                             hasNextPage && (
                                 <div

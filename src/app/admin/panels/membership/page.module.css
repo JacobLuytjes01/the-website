@@ -143,6 +143,200 @@
     background-color: #ef4444;
 }
 
+.editStatus {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.editInput {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.375rem;
+    bottom: 0.4rem;
+    left: 0.375rem;
+    width: auto;
+    min-width: 0;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 0.45rem;
+    border-radius: 0.4rem;
+    border: 1px solid rgba(15, 23, 42, 0.2);
+    background: #ffffff;
+    color: rgba(15, 23, 42, 0.9);
+
+    &:focus {
+        outline: none;
+        border-color: #0ea5e9;
+        box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25);
+    }
+}
+
+.editInputDirty {
+    &,
+    &:focus {
+        box-shadow: 0 0 0 2px rgba(255, 168, 0, 0.3);
+    }
+}
+
+.editInputInvalid {
+    &,
+    &:focus {
+        border-color: rgba(177, 2, 2, 1);
+        box-shadow: 0 0 0 2px rgba(177, 2, 2, 1);
+    }
+}
+
+.editAddressRow {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.375rem;
+    bottom: 0.4rem;
+    left: 0.375rem;
+    display: flex;
+    align-items: stretch;
+    gap: 0.3rem;
+}
+
+.editAddressInput {
+    position: static;
+    inset: auto;
+    min-width: 0;
+}
+
+.editAddressLine1 {
+    flex: 3 1 0;
+}
+
+.editAddressLine2 {
+    flex: 1.5 1 0;
+}
+
+.editAddressCity {
+    flex: 2 1 0;
+}
+
+.editAddressState {
+    flex: 0 0 3rem;
+    text-transform: uppercase;
+}
+
+.editAddressZip {
+    flex: 0 0 4.5rem;
+}
+
+.editNameRow {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.375rem;
+    bottom: 0.4rem;
+    left: 0.375rem;
+    display: flex;
+    align-items: stretch;
+    gap: 0.3rem;
+}
+
+.editNameInput {
+    position: static;
+    inset: auto;
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.editSelectTag {
+    position: relative;
+    justify-content: flex-start;
+    gap: 0.15rem;
+    width: 4.25rem;
+    padding-right: 0.45rem;
+    cursor: pointer;
+}
+
+.editSelectLabel {
+    flex: none;
+    width: 1.6rem;
+    text-align: center;
+}
+
+.editSelectChevron {
+    margin-left: auto;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.editPackageShippedTag.editPackageShippedTag {
+    display: flex;
+    position: relative;
+    cursor: pointer;
+}
+
+.editPackageShippedLabel {
+    text-align: center;
+}
+
+.editPackageShippedChevron {
+    position: absolute;
+    right: 0.35rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    flex-shrink: 0;
+}
+
+.editSelectTag,
+.editPackageShippedTag {
+    will-change: transform;
+    backface-visibility: hidden;
+    transform-origin: center center;
+    transition: transform 0.12s ease;
+
+    &:hover,
+    &:focus-visible {
+        transform: scale(1.05);
+    }
+}
+
+.editSelectOverlay.editSelectOverlay {
+    z-index: 1;
+    min-width: 0;
+    padding: 0.35rem;
+    overflow: visible;
+}
+
+.editSelectMenu {
+    display: grid;
+    gap: 0.25rem;
+    justify-items: start;
+}
+
+.editSelectOption {
+    display: flex;
+    padding: 0.15rem 0.2rem;
+    cursor: pointer;
+
+    & > span {
+        will-change: transform;
+        backface-visibility: hidden;
+        transform-origin: center center;
+        transition: transform 0.12s ease;
+    }
+
+    &:hover > span,
+    &:focus-visible > span {
+        transform: scale(1.05);
+    }
+}
+
+.editSelectDirty {
+    box-shadow: 0 0 0 2px rgba(255, 168, 0, 0.3);
+}
+
+.editUnavailable {
+    font-size: 0.75rem;
+    font-style: italic;
+    color: rgba(15, 23, 42, 0.45);
+}
+
 .tableOptionsBox {
     min-width: 14rem;
     background: rgba(255, 255, 255, 0.96);
@@ -504,6 +698,24 @@
     background: rgba(112, 195, 32, 0.3);
     color: rgba(17, 115, 75, 1);
 }
+
+.editableBoolTag {
+    cursor: pointer;
+    will-change: transform;
+    backface-visibility: hidden;
+    transform-origin: center center;
+    transition: transform 0.12s ease;
+
+    &:hover {
+        transform: scale(1.05);
+    }
+
+    &:focus-visible {
+        outline: 2px solid rgba(14, 165, 233, 0.8);
+        outline-offset: 2px;
+    }
+}
+
 .tagBlue {
     background: rgba(42, 155, 225, 0.3);
     color: rgba(10, 83, 168, 1);
@@ -559,7 +771,7 @@
 
 .tagFulfilled {
     min-width: auto;
-    width: calc(100% - 8px);
+    width: calc(100% - 0.5rem);
     font-size: 0.65rem;
     padding: 0.1rem 0.5rem;
     position: relative;

@@ -11,6 +11,7 @@ export interface Column<T> {
     key: string
     header: string
     render: (row: T, index: number) => React.ReactNode
+    renderEdit?: (row: T, index: number) => React.ReactNode
     width?: string
     allowOverflow?: boolean
     onCellClick?: (row: T, index: number) => void
@@ -32,11 +33,14 @@ function isCategory<T>(entry: ColumnEntry<T>): entry is ColumnCategory<T> {
     return 'columns' in entry && 'label' in entry
 }
 
+export type TableMode = 'view' | 'edit'
+
 export interface TableProps<T> {
     columns: ColumnEntry<T>[]
     data: T[]
     rowKey: (row: T, index: number) => string | number
     collapsedCategories?: string[]
+    mode?: TableMode
     footer?: React.ReactNode
 }
 
@@ -46,6 +50,7 @@ function TableCell<T>({
     col,
     row,
     index,
+    mode,
     isOpen,
     onToggle,
     onClose,
@@ -53,22 +58,30 @@ function TableCell<T>({
     col: Column<T>
     row: T
     index: number
+    mode: TableMode
     isOpen: boolean
     onToggle: () => void
     onClose: () => void
 }) {
-    const interactive = Boolean(col.menu ?? col.onCellClick)
+    const editing = mode === 'edit'
+    const editable = editing && col.renderEdit != null
+    const interactive = !editing && Boolean(col.menu ?? col.onCellClick)
 
     const activate = () => {
         col.onCellClick?.(row, index)
         if (col.menu) onToggle()
     }
 
+    const content = editable
+        ? col.renderEdit!(row, index)
+        : col.render(row, index)
+
     return (
         <span
             className={cn(
                 col.allowOverflow ? styles.cellOverflowVisible : styles.cell,
-                interactive && styles.clickable
+                interactive && styles.clickable,
+                editing && !editable && styles.lockedCell
             )}
             data-label={col.header}
             data-open-cell={isOpen ? 'true' : undefined}
@@ -88,11 +101,9 @@ function TableCell<T>({
             }
         >
             {col.allowOverflow ? (
-                col.render(row, index)
+                content
             ) : (
-                <span className={styles.cellContent}>
-                    {col.render(row, index)}
-                </span>
+                <span className={styles.cellContent}>{content}</span>
             )}
             {isOpen && col.menu && (
                 <span
@@ -112,11 +123,16 @@ export function Table<T>({
     data,
     rowKey,
     collapsedCategories = [],
+    mode = 'view',
     footer,
 }: TableProps<T>) {
     const [sortKey, setSortKey] = useState<string | null>(null)
     const [sortDir, setSortDir] = useState<SortDir>('asc')
     const [openCell, setOpenCell] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (mode === 'edit') setOpenCell(null)
+    }, [mode])
 
     useEffect(() => {
         if (!openCell) return
@@ -223,7 +239,7 @@ export function Table<T>({
     const gridTemplateColumns = visibleEntries.map((e) => e.width).join(' ')
 
     return (
-        <div className={styles.container}>
+        <div className={styles.container} data-table-mode={mode}>
             <div className={styles.header} style={{ gridTemplateColumns }}>
                 {visibleEntries.map((entry) => {
                     if (entry.type === 'group-collapsed') {
@@ -347,7 +363,10 @@ export function Table<T>({
                                             }}
                                         >
                                             <span
-                                                className={styles.cellContent}
+                                                className={cn(
+                                                    styles.cellContent,
+                                                    styles.overrideContent
+                                                )}
                                             >
                                                 {rowOverrides.get(
                                                     entry.category.label
@@ -364,6 +383,7 @@ export function Table<T>({
                                         col={col}
                                         row={row}
                                         index={index}
+                                        mode={mode}
                                         isOpen={openCell === cellId}
                                         onToggle={() =>
                                             setOpenCell((current) =>
