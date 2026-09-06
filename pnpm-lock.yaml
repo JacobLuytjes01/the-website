@@ -68,7 +68,7 @@ importers:
         version: 1.0.3
       pv-contracts:
         specifier: github:Progressive-Victory/the-contracts#main&path:/dist
-        version: '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/02fd8c5fafb5d50bd327d6cd3c9be81518623907#path:/dist'
+        version: '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/78d6e1f23c5b6b91d3ab44aea5d8a081fd79f16a#path:/dist'
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -1196,9 +1196,9 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/02fd8c5fafb5d50bd327d6cd3c9be81518623907#path:/dist':
-    resolution: {path: /dist, tarball: https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/02fd8c5fafb5d50bd327d6cd3c9be81518623907}
-    version: 4.2.5
+  '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/78d6e1f23c5b6b91d3ab44aea5d8a081fd79f16a#path:/dist':
+    resolution: {path: /dist, tarball: https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/78d6e1f23c5b6b91d3ab44aea5d8a081fd79f16a}
+    version: 5.0.1
 
   '@radix-ui/primitive@1.1.7':
     resolution: {integrity: sha512-rqWnm76nYT8HoNNqEjpgJ7Pw/DrBj5iBTrmEPo6HTX5+VJyBNOqTdv4g89G63HuR5g0AaENoAcH7Is5fF2kZ8Q==}
@@ -5803,7 +5803,7 @@ snapshots:
     dependencies:
       playwright: 1.63.0
 
-  '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/02fd8c5fafb5d50bd327d6cd3c9be81518623907#path:/dist':
+  '@progressive-victory/the-contracts@https://codeload.github.com/Progressive-Victory/the-contracts/tar.gz/78d6e1f23c5b6b91d3ab44aea5d8a081fd79f16a#path:/dist':
     dependencies:
       '@fastify/multipart': 10.1.1
       zod: 4.5.4
