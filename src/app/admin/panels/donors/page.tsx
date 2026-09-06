@@ -92,8 +92,7 @@ export default function Page() {
                         calcFutureDate(
                             contribution.createdAt,
                             contribution.recurringPeriod as
-                                | 'weekly'
-                                | 'monthly',
+                                'weekly' | 'monthly',
                             contribution.recurringDuration ?? 1
                         ) > new Date())
                 )
