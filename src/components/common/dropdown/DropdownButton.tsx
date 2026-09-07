@@ -192,9 +192,6 @@ export const DropdownButton = forwardRef<
 
     const variant = getDropdownVariantConfig(buttonVariant)
 
-    const renderedMenu =
-        typeof menu === 'function' ? menu({ closeDropdown }) : menu
-
     const handleButtonClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
         onClick?.(event)
         if (event.defaultPrevented) return
@@ -242,7 +239,8 @@ export const DropdownButton = forwardRef<
                     </>
                 )}
             </button>
-            {isOpen && renderedMenu}
+            {isOpen &&
+                (typeof menu === 'function' ? menu({ closeDropdown }) : menu)}
         </div>
     )
 })

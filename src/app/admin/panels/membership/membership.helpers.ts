@@ -344,13 +344,12 @@ const buildMembershipRequest = (member: Member, draft: MemberEdits) => {
 }
 
 export const buildPendingUpdates = (
-    members: Member[],
+    membersByEmail: Map<string, Member>,
     edits: Record<string, MemberEdits>
 ): PendingUpdate[] =>
-    members.flatMap((member) => {
-        const donorEmail = member.donorEmail
-        const draft = donorEmail != null ? edits[donorEmail] : undefined
-        if (donorEmail == null || draft == null) return []
+    Object.entries(edits).flatMap(([donorEmail, draft]) => {
+        const member = membersByEmail.get(donorEmail)
+        if (member == null) return []
 
         const userRequest =
             member.userId != null ? buildUserRequest(member, draft) : {}

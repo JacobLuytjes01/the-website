@@ -2,10 +2,19 @@
 
 import styles from './Table.module.css'
 import { cn } from '@/util'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import { FiChevronDown, FiChevronUp } from 'react-icons/fi'
 
 const DEFAULT_COLUMN_WIDTH = '10rem'
+const VIRTUALIZE_THRESHOLD = 60
+const OVERSCAN = 10
 
 export interface Column<T> {
     key: string
@@ -46,30 +55,42 @@ export interface TableProps<T> {
 
 type SortDir = 'asc' | 'desc'
 
-function TableCell<T>({
+type OpenCellSetter = React.Dispatch<React.SetStateAction<string | null>>
+
+interface VisibleEntry<T> {
+    type: 'column' | 'group-collapsed'
+    col?: Column<T>
+    category?: ColumnCategory<T>
+    width: string
+}
+
+function TableCellInner<T>({
     col,
     row,
     index,
     mode,
     isOpen,
-    onToggle,
-    onClose,
+    cellId,
+    setOpenCell,
 }: {
     col: Column<T>
     row: T
     index: number
     mode: TableMode
     isOpen: boolean
-    onToggle: () => void
-    onClose: () => void
+    cellId: string
+    setOpenCell: OpenCellSetter
 }) {
     const editing = mode === 'edit'
     const editable = editing && col.renderEdit != null
     const interactive = !editing && Boolean(col.menu ?? col.onCellClick)
 
+    const onClose = useCallback(() => setOpenCell(null), [setOpenCell])
+
     const activate = () => {
         col.onCellClick?.(row, index)
-        if (col.menu) onToggle()
+        if (col.menu)
+            setOpenCell((current) => (current === cellId ? null : cellId))
     }
 
     const content = editable
@@ -118,6 +139,178 @@ function TableCell<T>({
     )
 }
 
+const TableCell = React.memo(TableCellInner) as typeof TableCellInner
+
+function TableRowInner<T>({
+    row,
+    index,
+    rowId,
+    columns,
+    visibleEntries,
+    gridTemplateColumns,
+    mode,
+    openColKey,
+    setOpenCell,
+}: {
+    row: T
+    index: number
+    rowId: string | number
+    columns: ColumnEntry<T>[]
+    visibleEntries: VisibleEntry<T>[]
+    gridTemplateColumns: string
+    mode: TableMode
+    openColKey: string | null
+    setOpenCell: OpenCellSetter
+}) {
+    const rowOverrides = new Map<string, React.ReactNode>()
+    for (const entry of columns) {
+        if (isCategory(entry) && entry.rowRender) {
+            const result = entry.rowRender(row)
+            if (result != null) {
+                rowOverrides.set(entry.label, result)
+            }
+        }
+    }
+
+    const rendered = new Set<string>()
+
+    return (
+        <div
+            className={styles.row}
+            style={{ gridTemplateColumns }}
+            data-table-row="true"
+        >
+            {visibleEntries.map((entry) => {
+                if (entry.type === 'group-collapsed') {
+                    const category = entry.category!
+                    return (
+                        <span
+                            key={`group-${category.label}`}
+                            className={styles.dotCell}
+                        >
+                            {category.columns.map((col) => {
+                                const color =
+                                    category.dotColor?.(row, col) ?? null
+                                if (color) {
+                                    return (
+                                        <span
+                                            key={col.key}
+                                            className={styles.dot}
+                                            style={{ backgroundColor: color }}
+                                        />
+                                    )
+                                }
+                                return (
+                                    <span
+                                        key={col.key}
+                                        className={styles.bullet}
+                                    >
+                                        ·
+                                    </span>
+                                )
+                            })}
+                        </span>
+                    )
+                }
+                if (entry.category && rowOverrides.has(entry.category.label)) {
+                    if (rendered.has(entry.category.label)) {
+                        return null
+                    }
+                    rendered.add(entry.category.label)
+                    const span = entry.category.columns.length
+                    return (
+                        <span
+                            key={`override-${entry.category.label}`}
+                            className={styles.cell}
+                            style={{ gridColumn: `span ${span}` }}
+                        >
+                            <span
+                                className={cn(
+                                    styles.cellContent,
+                                    styles.overrideContent
+                                )}
+                            >
+                                {rowOverrides.get(entry.category.label)}
+                            </span>
+                        </span>
+                    )
+                }
+                const col = entry.col!
+                return (
+                    <TableCell
+                        key={col.key}
+                        col={col}
+                        row={row}
+                        index={index}
+                        mode={mode}
+                        isOpen={openColKey === col.key}
+                        cellId={`${rowId}::${col.key}`}
+                        setOpenCell={setOpenCell}
+                    />
+                )
+            })}
+        </div>
+    )
+}
+
+const TableRow = React.memo(TableRowInner) as typeof TableRowInner
+
+interface RowMetrics {
+    rowHeight: number
+    headerHeight: number
+}
+
+function useVirtualRange(
+    containerRef: React.RefObject<HTMLDivElement | null>,
+    { rowHeight, headerHeight }: RowMetrics,
+    rowCount: number,
+    enabled: boolean
+) {
+    const [range, setRange] = useState({ start: 0, end: rowCount })
+
+    useEffect(() => {
+        const container = containerRef.current
+
+        if (!enabled || !container) {
+            setRange({ start: 0, end: rowCount })
+            return
+        }
+
+        let frame = 0
+
+        const update = () => {
+            frame = 0
+            const offset = Math.max(0, container.scrollTop - headerHeight)
+            const start = Math.max(0, Math.floor(offset / rowHeight) - OVERSCAN)
+            const visible = Math.ceil(container.clientHeight / rowHeight)
+            const end = Math.min(rowCount, start + visible + OVERSCAN * 2)
+
+            setRange((current) =>
+                current.start === start && current.end === end
+                    ? current
+                    : { start, end }
+            )
+        }
+
+        const schedule = () => {
+            if (frame === 0) frame = requestAnimationFrame(update)
+        }
+
+        update()
+        container.addEventListener('scroll', schedule, { passive: true })
+        const observer = new ResizeObserver(schedule)
+        observer.observe(container)
+
+        return () => {
+            container.removeEventListener('scroll', schedule)
+            observer.disconnect()
+            if (frame !== 0) cancelAnimationFrame(frame)
+        }
+    }, [containerRef, rowHeight, headerHeight, rowCount, enabled])
+
+    return range
+}
+
 export function Table<T>({
     columns,
     data,
@@ -129,6 +322,12 @@ export function Table<T>({
     const [sortKey, setSortKey] = useState<string | null>(null)
     const [sortDir, setSortDir] = useState<SortDir>('asc')
     const [openCell, setOpenCell] = useState<string | null>(null)
+    const [metrics, setMetrics] = useState<RowMetrics>({
+        rowHeight: 0,
+        headerHeight: 0,
+    })
+    const containerRef = useRef<HTMLDivElement>(null)
+    const headerRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if (mode === 'edit') setOpenCell(null)
@@ -201,12 +400,7 @@ export function Table<T>({
     }, [data, flatColumns, sortKey, sortDir])
 
     const visibleEntries = useMemo(() => {
-        const entries: {
-            type: 'column' | 'group-collapsed'
-            col?: Column<T>
-            category?: ColumnCategory<T>
-            width: string
-        }[] = []
+        const entries: VisibleEntry<T>[] = []
         for (const entry of columns) {
             if (isCategory(entry)) {
                 if (collapsedSet.has(entry.label)) {
@@ -238,9 +432,44 @@ export function Table<T>({
 
     const gridTemplateColumns = visibleEntries.map((e) => e.width).join(' ')
 
+    const rowCount = sortedData.length
+    const hasRows = rowCount > 0
+
+    useLayoutEffect(() => {
+        const row =
+            containerRef.current?.querySelector<HTMLElement>('[data-table-row]')
+        const header = headerRef.current
+        if (!row || !header) return
+
+        const rowHeight = row.getBoundingClientRect().height
+        const headerHeight = header.getBoundingClientRect().height
+
+        setMetrics((current) =>
+            current.rowHeight === rowHeight &&
+            current.headerHeight === headerHeight
+                ? current
+                : { rowHeight, headerHeight }
+        )
+    }, [mode, visibleEntries, hasRows])
+
+    const { start, end } = useVirtualRange(
+        containerRef,
+        metrics,
+        rowCount,
+        metrics.rowHeight > 0 && rowCount > VIRTUALIZE_THRESHOLD
+    )
+
     return (
-        <div className={styles.container} data-table-mode={mode}>
-            <div className={styles.header} style={{ gridTemplateColumns }}>
+        <div
+            className={styles.container}
+            data-table-mode={mode}
+            ref={containerRef}
+        >
+            <div
+                className={styles.header}
+                style={{ gridTemplateColumns }}
+                ref={headerRef}
+            >
                 {visibleEntries.map((entry) => {
                     if (entry.type === 'group-collapsed') {
                         return (
@@ -284,122 +513,48 @@ export function Table<T>({
                 })}
             </div>
 
-            {sortedData.map((row, index) => {
-                const rowOverrides = new Map<string, React.ReactNode>()
-                for (const entry of columns) {
-                    if (isCategory(entry) && entry.rowRender) {
-                        const result = entry.rowRender(row)
-                        if (result != null) {
-                            rowOverrides.set(entry.label, result)
-                        }
-                    }
-                }
+            {start > 0 && (
+                <div
+                    style={{
+                        height: start * metrics.rowHeight,
+                        flexShrink: 0,
+                    }}
+                />
+            )}
+
+            {sortedData.slice(start, end).map((row, offset) => {
+                const index = start + offset
+                const rowId = rowKey(row, index)
+                const openPrefix = `${rowId}::`
 
                 return (
-                    <div
-                        key={rowKey(row, index)}
-                        className={styles.row}
-                        style={{ gridTemplateColumns }}
-                    >
-                        {(() => {
-                            const rendered = new Set<string>()
-                            return visibleEntries.map((entry) => {
-                                if (entry.type === 'group-collapsed') {
-                                    const category = entry.category!
-                                    return (
-                                        <span
-                                            key={`group-${category.label}`}
-                                            className={styles.dotCell}
-                                        >
-                                            {category.columns.map((col) => {
-                                                const color =
-                                                    category.dotColor?.(
-                                                        row,
-                                                        col
-                                                    ) ?? null
-                                                if (color) {
-                                                    return (
-                                                        <span
-                                                            key={col.key}
-                                                            className={
-                                                                styles.dot
-                                                            }
-                                                            style={{
-                                                                backgroundColor:
-                                                                    color,
-                                                            }}
-                                                        />
-                                                    )
-                                                }
-                                                return (
-                                                    <span
-                                                        key={col.key}
-                                                        className={
-                                                            styles.bullet
-                                                        }
-                                                    >
-                                                        ·
-                                                    </span>
-                                                )
-                                            })}
-                                        </span>
-                                    )
-                                }
-                                if (
-                                    entry.category &&
-                                    rowOverrides.has(entry.category.label)
-                                ) {
-                                    if (rendered.has(entry.category.label)) {
-                                        return null
-                                    }
-                                    rendered.add(entry.category.label)
-                                    const span = entry.category.columns.length
-                                    return (
-                                        <span
-                                            key={`override-${entry.category.label}`}
-                                            className={styles.cell}
-                                            style={{
-                                                gridColumn: `span ${span}`,
-                                            }}
-                                        >
-                                            <span
-                                                className={cn(
-                                                    styles.cellContent,
-                                                    styles.overrideContent
-                                                )}
-                                            >
-                                                {rowOverrides.get(
-                                                    entry.category.label
-                                                )}
-                                            </span>
-                                        </span>
-                                    )
-                                }
-                                const col = entry.col!
-                                const cellId = `${rowKey(row, index)}::${col.key}`
-                                return (
-                                    <TableCell
-                                        key={col.key}
-                                        col={col}
-                                        row={row}
-                                        index={index}
-                                        mode={mode}
-                                        isOpen={openCell === cellId}
-                                        onToggle={() =>
-                                            setOpenCell((current) =>
-                                                current === cellId
-                                                    ? null
-                                                    : cellId
-                                            )
-                                        }
-                                        onClose={() => setOpenCell(null)}
-                                    />
-                                )
-                            })
-                        })()}
-                    </div>
+                    <TableRow
+                        key={rowId}
+                        row={row}
+                        index={index}
+                        rowId={rowId}
+                        columns={columns}
+                        visibleEntries={visibleEntries}
+                        gridTemplateColumns={gridTemplateColumns}
+                        mode={mode}
+                        openColKey={
+                            openCell?.startsWith(openPrefix)
+                                ? openCell.slice(openPrefix.length)
+                                : null
+                        }
+                        setOpenCell={setOpenCell}
+                    />
                 )
             })}
+
+            {end < rowCount && (
+                <div
+                    style={{
+                        height: (rowCount - end) * metrics.rowHeight,
+                        flexShrink: 0,
+                    }}
+                />
+            )}
             {footer}
         </div>
     )

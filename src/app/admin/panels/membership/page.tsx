@@ -1,6 +1,12 @@
 'use client'
 
-import { useMembershipPanel, MembershipTableOptions } from './hooks'
+import {
+    useMembershipPanel,
+    usePendingUpdates,
+    useSaveMemberships,
+    MembershipTableOptions,
+} from './hooks'
+import { EditController, Member } from './membership.types'
 import { buildColumns, FULFILLMENT_CATEGORY } from './membershipColumns'
 import styles from './page.module.css'
 import {
@@ -59,6 +65,55 @@ const tableOptionRows: {
     },
 ]
 
+function EditToolbar({
+    members,
+    editController,
+    saveMutation,
+    discardEdits,
+}: {
+    members: Member[]
+    editController: EditController
+    saveMutation: ReturnType<typeof useSaveMemberships>
+    discardEdits: () => void
+}) {
+    const { pendingUpdates, hasInvalidEdits } = usePendingUpdates(
+        editController,
+        members
+    )
+
+    return (
+        <>
+            <span className={styles.editStatus}>
+                {hasInvalidEdits
+                    ? 'Fix invalid fields to save'
+                    : pendingUpdates.length === 0
+                      ? 'No changes'
+                      : `${pendingUpdates.length} pending change${pendingUpdates.length === 1 ? '' : 's'}`}
+            </span>
+            <button
+                type="button"
+                className={styles.toolbarButton}
+                disabled={
+                    hasInvalidEdits ||
+                    pendingUpdates.length === 0 ||
+                    saveMutation.isPending
+                }
+                onClick={() => saveMutation.mutate(pendingUpdates)}
+            >
+                <FaSave /> {saveMutation.isPending ? 'Saving…' : 'Save Changes'}
+            </button>
+            <button
+                type="button"
+                className={cn(styles.toolbarButton, styles.discardButton)}
+                disabled={saveMutation.isPending}
+                onClick={discardEdits}
+            >
+                <FaTrashAlt /> Discard Changes
+            </button>
+        </>
+    )
+}
+
 export default function Page() {
     const {
         members,
@@ -68,8 +123,6 @@ export default function Page() {
         tableMode,
         setTableMode,
         editController,
-        pendingUpdates,
-        hasInvalidEdits,
         saveMutation,
         discardEdits,
         hasNextPage,
@@ -113,43 +166,12 @@ export default function Page() {
 
                     <div className={styles.tableToolbar}>
                         {tableMode === 'edit' ? (
-                            <>
-                                <span className={styles.editStatus}>
-                                    {hasInvalidEdits
-                                        ? 'Fix invalid fields to save'
-                                        : pendingUpdates.length === 0
-                                          ? 'No changes'
-                                          : `${pendingUpdates.length} pending change${pendingUpdates.length === 1 ? '' : 's'}`}
-                                </span>
-                                <button
-                                    type="button"
-                                    className={styles.toolbarButton}
-                                    disabled={
-                                        hasInvalidEdits ||
-                                        pendingUpdates.length === 0 ||
-                                        saveMutation.isPending
-                                    }
-                                    onClick={() =>
-                                        saveMutation.mutate(pendingUpdates)
-                                    }
-                                >
-                                    <FaSave />{' '}
-                                    {saveMutation.isPending
-                                        ? 'Saving…'
-                                        : 'Save Changes'}
-                                </button>
-                                <button
-                                    type="button"
-                                    className={cn(
-                                        styles.toolbarButton,
-                                        styles.discardButton
-                                    )}
-                                    disabled={saveMutation.isPending}
-                                    onClick={discardEdits}
-                                >
-                                    <FaTrashAlt /> Discard Changes
-                                </button>
-                            </>
+                            <EditToolbar
+                                members={members}
+                                editController={editController}
+                                saveMutation={saveMutation}
+                                discardEdits={discardEdits}
+                            />
                         ) : (
                             <button
                                 type="button"

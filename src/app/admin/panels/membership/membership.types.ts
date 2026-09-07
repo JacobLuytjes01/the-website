@@ -120,6 +120,9 @@ export type MemberEdits = Partial<
 export interface EditController {
     draftOf: (member: Member) => MemberEdits
     update: (member: Member, patch: MemberEdits) => void
+    subscribeMember: (donorEmail: string, listener: () => void) => () => void
+    subscribeAll: (listener: () => void) => () => void
+    getEdits: () => Record<string, MemberEdits>
 }
 
 export interface MemberValueProps {

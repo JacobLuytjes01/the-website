@@ -28,11 +28,19 @@ import {
     useQuery,
     useQueryClient,
 } from '@tanstack/react-query'
-import { useCallback, useMemo, useState } from 'react'
+import {
+    useCallback,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+} from 'react'
 
 const HISTORY_STALE_TIME = 5 * 60 * 1000
 const HISTORY_LIMIT = 5
 const PAGE_SIZE = 25
+const EMPTY_DRAFT: MemberEdits = {}
+const noopUnsubscribe = () => undefined
 
 export function useFieldHistory<T extends HistoryEntry>({
     userId,
@@ -93,30 +101,80 @@ export function useFieldHistory<T extends HistoryEntry>({
     }
 }
 
+// Edits live outside React state so typing only re-renders the affected cells
+// instead of rebuilding every column and row of the table.
 export function useMemberEdits() {
-    const [edits, setEdits] = useState<Record<string, MemberEdits>>({})
+    const editsRef = useRef<Record<string, MemberEdits>>({})
+    const memberListeners = useRef(new Map<string, Set<() => void>>())
+    const allListeners = useRef(new Set<() => void>())
 
-    const editController = useMemo<EditController>(
-        () => ({
+    const editController = useMemo<EditController>(() => {
+        const subscribeTo = (set: Set<() => void>, listener: () => void) => {
+            set.add(listener)
+            return () => {
+                set.delete(listener)
+            }
+        }
+
+        return {
             draftOf: (member: Member) =>
-                member.donorEmail != null
-                    ? (edits[member.donorEmail] ?? {})
-                    : {},
+                (member.donorEmail != null
+                    ? editsRef.current[member.donorEmail]
+                    : undefined) ?? EMPTY_DRAFT,
             update: (member: Member, patch: MemberEdits) => {
                 const donorEmail = member.donorEmail
                 if (donorEmail == null) return
-                setEdits((current) => ({
-                    ...current,
-                    [donorEmail]: { ...current[donorEmail], ...patch },
-                }))
+                editsRef.current = {
+                    ...editsRef.current,
+                    [donorEmail]: {
+                        ...editsRef.current[donorEmail],
+                        ...patch,
+                    },
+                }
+                memberListeners.current
+                    .get(donorEmail)
+                    ?.forEach((listener) => listener())
+                allListeners.current.forEach((listener) => listener())
             },
-        }),
-        [edits]
+            subscribeMember: (donorEmail: string, listener: () => void) => {
+                let listeners = memberListeners.current.get(donorEmail)
+                if (!listeners) {
+                    listeners = new Set()
+                    memberListeners.current.set(donorEmail, listeners)
+                }
+                return subscribeTo(listeners, listener)
+            },
+            subscribeAll: (listener: () => void) =>
+                subscribeTo(allListeners.current, listener),
+            getEdits: () => editsRef.current,
+        }
+    }, [])
+
+    const clearEdits = useCallback(() => {
+        editsRef.current = {}
+        memberListeners.current.forEach((listeners) =>
+            listeners.forEach((listener) => listener())
+        )
+        allListeners.current.forEach((listener) => listener())
+    }, [])
+
+    return { editController, clearEdits }
+}
+
+export function useMemberDraft(edit: EditController, member: Member) {
+    const donorEmail = member.donorEmail
+
+    const subscribe = useCallback(
+        (listener: () => void) =>
+            donorEmail != null
+                ? edit.subscribeMember(donorEmail, listener)
+                : noopUnsubscribe,
+        [edit, donorEmail]
     )
 
-    const clearEdits = useCallback(() => setEdits({}), [])
+    const getDraft = useCallback(() => edit.draftOf(member), [edit, member])
 
-    return { edits, editController, clearEdits }
+    return useSyncExternalStore(subscribe, getDraft, getDraft)
 }
 
 export function useSaveMemberships(onSaved: () => void) {
@@ -215,11 +273,46 @@ function useMembershipsQuery() {
     return { query, members, totalEntries: query.data?.pages[0]?.count }
 }
 
+export function usePendingUpdates(edit: EditController, members: Member[]) {
+    const edits = useSyncExternalStore(
+        edit.subscribeAll,
+        edit.getEdits,
+        edit.getEdits
+    )
+
+    const membersByEmail = useMemo(() => {
+        const map = new Map<string, Member>()
+        for (const member of members) {
+            if (member.donorEmail != null) map.set(member.donorEmail, member)
+        }
+        return map
+    }, [members])
+
+    const pendingUpdates = useMemo(
+        () => buildPendingUpdates(membersByEmail, edits),
+        [membersByEmail, edits]
+    )
+
+    const hasInvalidEdits = useMemo(
+        () =>
+            Object.values(edits).some(
+                (draft) =>
+                    (draft.userPhone != null &&
+                        !isValidPhone(draft.userPhone)) ||
+                    (draft.address != null &&
+                        !isValidAddressDraft(draft.address))
+            ),
+        [edits]
+    )
+
+    return { pendingUpdates, hasInvalidEdits }
+}
+
 export function useMembershipPanel() {
     const [options, setOptions] =
         useState<MembershipTableOptions>(defaultTableOptions)
     const [tableMode, setTableMode] = useState<MembershipTableMode>('view')
-    const { edits, editController, clearEdits } = useMemberEdits()
+    const { editController, clearEdits } = useMemberEdits()
     const { query, members, totalEntries } = useMembershipsQuery()
 
     const { fetchNextPage, hasNextPage, isFetchingNextPage } = query
@@ -237,23 +330,6 @@ export function useMembershipPanel() {
         []
     )
 
-    const pendingUpdates = useMemo(
-        () => buildPendingUpdates(members, edits),
-        [members, edits]
-    )
-
-    const hasInvalidEdits = useMemo(
-        () =>
-            Object.values(edits).some(
-                (draft) =>
-                    (draft.userPhone != null &&
-                        !isValidPhone(draft.userPhone)) ||
-                    (draft.address != null &&
-                        !isValidAddressDraft(draft.address))
-            ),
-        [edits]
-    )
-
     const stopEditing = useCallback(() => {
         clearEdits()
         setTableMode('view')
@@ -269,8 +345,6 @@ export function useMembershipPanel() {
         tableMode,
         setTableMode,
         editController,
-        pendingUpdates,
-        hasInvalidEdits,
         saveMutation,
         discardEdits: stopEditing,
         hasNextPage,

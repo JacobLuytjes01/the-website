@@ -4,6 +4,7 @@ import { EditableSelectTag } from './components/EditableSelectTag'
 import { SourceMenu } from './components/SourceMenu'
 import { ConfirmedBadge } from './components/Tags'
 import tags from './components/Tags.module.css'
+import { useMemberDraft } from './hooks'
 import {
     describeAddressChange,
     describeEmailChange,
@@ -56,9 +57,9 @@ const nameInputs = [
 ] as const
 
 export const NameEdit = ({ member, edit }: MemberEditProps) => {
-    if (member.userId == null) return <NoLinkedUser />
+    const draft = useMemberDraft(edit, member)
 
-    const draft = edit.draftOf(member)
+    if (member.userId == null) return <NoLinkedUser />
 
     return (
         <div className={styles.editNameRow}>
@@ -198,9 +199,9 @@ const addressInputs: {
 ]
 
 export const AddressEdit = ({ member, edit }: MemberEditProps) => {
-    if (member.userId == null) return <NoLinkedUser />
+    const draft = useMemberDraft(edit, member).address ?? {}
 
-    const draft = edit.draftOf(member).address ?? {}
+    if (member.userId == null) return <NoLinkedUser />
 
     return (
         <div className={styles.editAddressRow}>
@@ -269,10 +270,11 @@ export const PhoneValue = ({ member }: MemberValueProps) => (
 )
 
 export const PhoneEdit = ({ member, edit }: MemberEditProps) => {
+    const draft = useMemberDraft(edit, member).userPhone
+
     if (member.userId == null) return <NoLinkedUser />
 
     const original = member.userPhone ?? ''
-    const draft = edit.draftOf(member).userPhone
     const invalid = !isValidPhone(draft ?? original)
 
     return (
@@ -329,10 +331,12 @@ export const EmailValue = ({ member }: MemberValueProps) => (
 )
 
 export const EmailEdit = ({ member, edit }: MemberEditProps) => {
+    const userEmailDraft = useMemberDraft(edit, member).userEmail
+
     if (member.userId == null) return <NoLinkedUser />
 
     const original = member.userEmail ?? ''
-    const value = edit.draftOf(member).userEmail ?? original
+    const value = userEmailDraft ?? original
 
     return (
         <input
@@ -396,7 +400,7 @@ export const ShirtSizeValue = ({ member }: MemberValueProps) =>
 
 export const ShirtSizeEdit = ({ member, edit }: MemberEditProps) => {
     const { value, dirty } = resolveSelectDraft(
-        edit.draftOf(member).shirtSize,
+        useMemberDraft(edit, member).shirtSize,
         member.shirtSize
     )
 
@@ -447,7 +451,7 @@ export const PackageShippedValue = ({ member }: MemberValueProps) =>
 
 export const PackageShippedEdit = ({ member, edit }: MemberEditProps) => {
     const { value, dirty } = resolveSelectDraft(
-        edit.draftOf(member).packageShipped,
+        useMemberDraft(edit, member).packageShipped,
         member.packageShipped
     )
 

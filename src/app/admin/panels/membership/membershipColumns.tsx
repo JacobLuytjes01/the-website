@@ -2,7 +2,7 @@
 
 import { BoolTag, EditableBoolTag } from './components/Tags'
 import tags from './components/Tags.module.css'
-import { MembershipTableOptions } from './hooks'
+import { MembershipTableOptions, useMemberDraft } from './hooks'
 import { hasAddressDraftChange, hasNameDraftChange } from './membership.helpers'
 import {
     EditController,
@@ -69,30 +69,40 @@ interface FlagColumnConfig {
     resolveDraft?: (member: Member, draft: MemberEdits) => boolean
 }
 
+const FlagEdit = ({
+    member,
+    edit,
+    config: { key, header, resolveDraft },
+}: {
+    member: Member
+    edit: EditController
+    config: FlagColumnConfig
+}) => {
+    const draft = useMemberDraft(edit, member)
+    const value = resolveDraft
+        ? resolveDraft(member, draft)
+        : (draft[key] ?? member[key] ?? false)
+
+    return (
+        <EditableBoolTag
+            label={header}
+            value={value}
+            onToggle={() => edit.update(member, { [key]: !value })}
+        />
+    )
+}
+
 const flagColumn = (
     edit: EditController,
-    { key, header, resolveDraft }: FlagColumnConfig
+    config: FlagColumnConfig
 ): Column<Member> => ({
-    key,
-    header,
+    key: config.key,
+    header: config.header,
     width: '5rem',
     allowOverflow: true,
-    sortValue: (m) => (m[key] ? 1 : 0),
-    render: (m) => <BoolTag value={m[key]} />,
-    renderEdit: (m) => {
-        const draft = edit.draftOf(m)
-        const value = resolveDraft
-            ? resolveDraft(m, draft)
-            : (draft[key] ?? m[key] ?? false)
-
-        return (
-            <EditableBoolTag
-                label={header}
-                value={value}
-                onToggle={() => edit.update(m, { [key]: !value })}
-            />
-        )
-    },
+    sortValue: (m) => (m[config.key] ? 1 : 0),
+    render: (m) => <BoolTag value={m[config.key]} />,
+    renderEdit: (m) => <FlagEdit member={m} edit={edit} config={config} />,
 })
 
 const readOnlyBoolColumn = (
