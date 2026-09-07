@@ -8,6 +8,8 @@ export enum EndorsementType {
     PVPledge,
     Endorsement,
     Recommendation,
+    // Not yet supported by the API; treated as the default until the backend adds it.
+    None,
 }
 export enum BackgroundColor {
     Blue,
