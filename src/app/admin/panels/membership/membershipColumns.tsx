@@ -172,10 +172,12 @@ export const buildColumns = ({
     options,
     tableMode,
     edit,
+    onMatchUser,
 }: {
     options: MembershipTableOptions
     tableMode: MembershipTableMode
     edit: EditController
+    onMatchUser: (member: Member) => void
 }): ColumnEntry<Member>[] => {
     const { showConfirmed, showStatus, showRowNumber } = options
     const showFulfilledTag = options.showFulfilled && tableMode === 'view'
@@ -350,7 +352,14 @@ export const buildColumns = ({
                         <BoolTag value={m.userMatched} />
                     </Link>
                 ) : (
-                    <BoolTag value={m.userMatched} />
+                    <button
+                        type="button"
+                        className={styles.userMatchedLink}
+                        aria-label="Match user"
+                        onClick={() => onMatchUser(m)}
+                    >
+                        <BoolTag value={m.userMatched} />
+                    </button>
                 ),
         },
     ]

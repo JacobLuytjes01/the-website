@@ -9,14 +9,20 @@ import {
 import { EditController, Member } from './membership.types'
 import { buildColumns, FULFILLMENT_CATEGORY } from './membershipColumns'
 import styles from './page.module.css'
+import { ListBody, ListElement } from '@/app/admin/layout/List'
+import { SearchModal } from '@/app/admin/layout/SearchModal'
 import {
     DropdownButton,
     DropdownOverlay,
     ToggleGroup,
 } from '@/components/common'
 import { Table } from '@/components/common/table'
+import { UserProfile, zUserProfile } from '@/contracts/data'
+import { ActBlueDonorLinkRequest } from '@/contracts/requests'
 import { cn } from '@/util'
-import { useMemo } from 'react'
+import { useCurrentUser, useFetch, usePaginatedSearch } from '@/util/hooks'
+import { useQueryClient } from '@tanstack/react-query'
+import { ChangeEvent, useCallback, useMemo, useState } from 'react'
 import { FaEdit, FaSave, FaTrashAlt } from 'react-icons/fa'
 
 const showHideChoices = [
@@ -115,6 +121,10 @@ function EditToolbar({
 }
 
 export default function Page() {
+    const { onPost } = useFetch()
+    const loggedInUser = useCurrentUser()
+    const queryClient = useQueryClient()
+    const [memberToMatch, setMemberToMatch] = useState<Member | null>(null)
     const {
         members,
         totalEntries,
@@ -130,8 +140,56 @@ export default function Page() {
         sentinelRef,
     } = useMembershipPanel()
 
+    const {
+        query: userSearchQuery,
+        search: userSearch,
+        onSearch: onUserSearch,
+    } = usePaginatedSearch('/users', zUserProfile)
+
+    const handleMatchUser = useCallback(
+        async (user: UserProfile) => {
+            const donorEmail = memberToMatch?.donorEmail
+            if (donorEmail == null) return
+
+            await onPost(
+                '/actblue/donors/:donorEmail/link',
+                {
+                    userId: user.id,
+                    metaData: {
+                        dataSource: 'Membership Panel',
+                        userWhoUpdatedId: loggedInUser.data?.id,
+                    },
+                } satisfies ActBlueDonorLinkRequest,
+                null,
+                { params: { donorEmail } }
+            )
+
+            setMemberToMatch(null)
+            await queryClient.invalidateQueries({
+                queryKey: ['/actblue/memberships'],
+            })
+        },
+        [loggedInUser.data?.id, memberToMatch?.donorEmail, onPost, queryClient]
+    )
+
+    const handleUserSearch = useCallback(
+        (event: ChangeEvent<HTMLInputElement>) =>
+            onUserSearch({
+                ...userSearch,
+                query: event.target.value,
+                page: 0,
+            }),
+        [onUserSearch, userSearch]
+    )
+
     const columns = useMemo(
-        () => buildColumns({ options, tableMode, edit: editController }),
+        () =>
+            buildColumns({
+                options,
+                tableMode,
+                edit: editController,
+                onMatchUser: setMemberToMatch,
+            }),
         [options, tableMode, editController]
     )
 
@@ -249,6 +307,37 @@ export default function Page() {
                     />
                 </div>
             </div>
+            <SearchModal
+                open={memberToMatch != null}
+                onClose={() => setMemberToMatch(null)}
+                title="Match User"
+                subtitle="Search users and link one to this membership record."
+                searchValue={userSearch.query ?? ''}
+                onSearchChange={handleUserSearch}
+            >
+                <ListBody
+                    count={userSearchQuery.data?.count}
+                    isPending={userSearchQuery.isPending}
+                    error={userSearchQuery.error}
+                >
+                    {userSearchQuery.data?.data.map((user) => (
+                        <ListElement
+                            key={user.id}
+                            onClick={() => void handleMatchUser(user)}
+                        >
+                            <span>
+                                {user.preferredName ??
+                                    [user.firstName, user.lastName]
+                                        .filter(Boolean)
+                                        .join(' ') ??
+                                    user.email ??
+                                    `User ${user.id}`}
+                            </span>
+                            {user.email && <span>{user.email}</span>}
+                        </ListElement>
+                    ))}
+                </ListBody>
+            </SearchModal>
         </div>
     )
 }

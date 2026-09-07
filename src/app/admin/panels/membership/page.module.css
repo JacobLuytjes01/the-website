@@ -177,6 +177,9 @@
 .userMatchedLink {
     display: inline-flex;
     cursor: pointer;
+    border: 0;
+    padding: 0;
+    background: transparent;
 }
 
 @media (max-width: 53rem) {
