@@ -25,6 +25,32 @@
     gap: 0.75rem;
 }
 
+.avatarButton {
+    position: relative;
+    display: inline-flex;
+    width: 72px;
+    height: 72px;
+    cursor: pointer;
+
+    &:hover .imageOverlay,
+    &:focus-within .imageOverlay {
+        background: rgba(15, 23, 42, 0.56);
+    }
+}
+
+.imageOverlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.38);
+    transition: background 140ms ease;
+    pointer-events: none;
+}
+
 .userInfo {
     display: flex;
     flex-direction: column;
@@ -46,6 +72,11 @@
     font-weight: 500;
 }
 
+.uploadError {
+    font-size: 0.75rem;
+    color: #b91c1c;
+}
+
 .roleList {
     display: flex;
     gap: 0.5rem;
@@ -62,6 +93,16 @@
     white-space: nowrap;
     color: rgba(15, 23, 42, 0.72);
     background: rgba(15, 23, 42, 0.06);
+}
+
+.publishedTag {
+    color: #166534;
+    background: rgba(34, 197, 94, 0.16);
+}
+
+.notPublishedTag {
+    color: #b91c1c;
+    background: rgba(239, 68, 68, 0.14);
 }
 
 @media (max-width: 720px) {

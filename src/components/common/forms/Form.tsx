@@ -44,6 +44,12 @@ export interface FormProps<T> {
     /** An optional avatar element displayed in the header. */
     avatar?: React.ReactNode
 
+    /** Optional content displayed above the form header. */
+    beforeHeader?: React.ReactElement
+
+    /** Optional class name for the form element. */
+    className?: string
+
     /** If this is true, no 'Edit' button will be displayed. */
     readonly?: boolean
 
@@ -99,6 +105,8 @@ export function Form<T>({
     title,
     subtitle,
     avatar,
+    beforeHeader,
+    className,
     readonly = false,
     isInvalid = false,
     saving = false,
@@ -286,74 +294,94 @@ export function Form<T>({
         }
     })
 
-    return (
-        <form className={styles.form} onSubmit={(e) => e.preventDefault()}>
-            <header className={styles.header}>
-                <div className={styles.titleSection}>
-                    {avatar && <div className={styles.avatar}>{avatar}</div>}
-                    <div className={styles.titleContent}>
-                        <h1 className={styles.title}>{title}</h1>
-                        {subtitle && (
-                            <p className={styles.subtitle}>{subtitle}</p>
-                        )}
-                    </div>
-                </div>
+    const hydratedBeforeHeader =
+        beforeHeader && React.isValidElement(beforeHeader)
+            ? {
+                  ...beforeHeader,
+                  props: {
+                      id: 'before-header',
+                      ...(beforeHeader.props as object),
+                      dynamic,
+                  },
+              }
+            : beforeHeader
 
-                {!readonly && (
-                    <div className={styles.buttonRow}>
-                        {editing ? (
-                            <>
-                                <button
-                                    onClick={handleSave}
-                                    disabled={!dirty || invalid}
-                                    className={styles.button}
-                                >
-                                    <FaSave /> Save Changes
-                                </button>
-                                <button
-                                    onClick={handleCancel}
-                                    className={cn(
-                                        styles.button,
-                                        styles.discardButton
-                                    )}
-                                >
-                                    <FaTrashAlt /> Discard Changes
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                {onCreate && (
+    return (
+        <>
+            {hydratedBeforeHeader}
+            <form
+                className={cn(styles.form, className)}
+                onSubmit={(e) => e.preventDefault()}
+            >
+                <header className={styles.header}>
+                    <div className={styles.titleSection}>
+                        {avatar && (
+                            <div className={styles.avatar}>{avatar}</div>
+                        )}
+                        <div className={styles.titleContent}>
+                            <h1 className={styles.title}>{title}</h1>
+                            {subtitle && (
+                                <p className={styles.subtitle}>{subtitle}</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {!readonly && (
+                        <div className={styles.buttonRow}>
+                            {editing ? (
+                                <>
                                     <button
-                                        onClick={handleCreate}
+                                        onClick={handleSave}
+                                        disabled={!dirty || invalid}
                                         className={styles.button}
                                     >
-                                        <FaPlus /> Create
+                                        <FaSave /> Save Changes
                                     </button>
-                                )}
-                                <button
-                                    onClick={handleEdit}
-                                    className={styles.button}
-                                >
-                                    <FaEdit /> Edit
-                                </button>
-                                {onDelete && (
                                     <button
-                                        onClick={handleDelete}
+                                        onClick={handleCancel}
                                         className={cn(
                                             styles.button,
                                             styles.discardButton
                                         )}
                                     >
-                                        <FaTrashAlt /> Delete
+                                        <FaTrashAlt /> Discard Changes
                                     </button>
-                                )}
-                            </>
-                        )}
-                    </div>
-                )}
-            </header>
+                                </>
+                            ) : (
+                                <>
+                                    {onCreate && (
+                                        <button
+                                            onClick={handleCreate}
+                                            className={styles.button}
+                                        >
+                                            <FaPlus /> Create
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={handleEdit}
+                                        className={styles.button}
+                                    >
+                                        <FaEdit /> Edit
+                                    </button>
+                                    {onDelete && (
+                                        <button
+                                            onClick={handleDelete}
+                                            className={cn(
+                                                styles.button,
+                                                styles.discardButton
+                                            )}
+                                        >
+                                            <FaTrashAlt /> Delete
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+                </header>
 
-            {hydratedChildren}
-        </form>
+                {hydratedChildren}
+            </form>
+        </>
     )
 }

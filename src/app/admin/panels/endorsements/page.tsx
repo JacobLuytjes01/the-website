@@ -358,28 +358,50 @@ export default function Page() {
                                             </span>
                                         )}
                                     </div>
-                                    <span
-                                        className={cn(
-                                            styles.levelTag,
-                                            item.endorsementLevel ===
-                                                EndorsementType.PVPledge &&
-                                                styles.levelTagPledge,
-                                            item.endorsementLevel ===
-                                                EndorsementType.Recommendation &&
-                                                styles.levelTagRecommendation,
-                                            item.endorsementLevel ===
-                                                EndorsementType.None &&
-                                                styles.levelTagNone
-                                        )}
-                                    >
-                                        {
-                                            endorsementLevelOptions.find(
-                                                (option) =>
-                                                    option.value ===
-                                                    item.endorsementLevel
-                                            )?.label
-                                        }
-                                    </span>
+                                    <div className={styles.levelTags}>
+                                        <span
+                                            className={cn(
+                                                styles.levelTag,
+                                                item.endorsementLevel ===
+                                                    EndorsementType.PVPledge &&
+                                                    styles.tagPurple,
+                                                item.endorsementLevel ===
+                                                    EndorsementType.Endorsement &&
+                                                    styles.tagGreen,
+                                                item.endorsementLevel ===
+                                                    EndorsementType.Recommendation &&
+                                                    styles.tagRed,
+                                                item.endorsementLevel ===
+                                                    EndorsementType.None &&
+                                                    styles.tagDefault
+                                            )}
+                                        >
+                                            {
+                                                endorsementLevelOptions.find(
+                                                    (option) =>
+                                                        option.value ===
+                                                        item.endorsementLevel
+                                                )?.label
+                                            }
+                                        </span>
+                                        <span
+                                            className={cn(
+                                                styles.levelTag,
+                                                item.initiativeLevel ===
+                                                    InitiativeType.State
+                                                    ? styles.tagOrange
+                                                    : styles.tagBlue
+                                            )}
+                                        >
+                                            {
+                                                initiativeLevelOptions.find(
+                                                    (option) =>
+                                                        option.value ===
+                                                        item.initiativeLevel
+                                                )?.label
+                                            }
+                                        </span>
+                                    </div>
                                 </div>
                             </ListElement>
                         )
@@ -388,142 +410,133 @@ export default function Page() {
             </div>
 
             <div className={styles.detailsPane}>
-                {selectedEndorsement && (
-                    <div className={styles.detailsHeader}>
-                        <div className={styles.bannerCover} />
-                        <EndorsementBanner
-                            endorsement={formState?.form ?? selectedEndorsement}
-                        />
-                    </div>
-                )}
-                <div className={styles.detailsContent}>
-                    <Form<Endorsement>
-                        key={selectedEndorsement?.id}
-                        form={selectedEndorsement}
-                        title={
-                            formState?.mode == 'create'
-                                ? 'New Endorsement'
-                                : (selectedEndorsement?.name ?? 'Endorsement')
-                        }
-                        saving={
-                            createMutation.isPending || updateMutation.isPending
-                        }
-                        onUpdate={setFormState}
-                        onSave={handleSave}
-                        onCreate={handleCreate}
-                        onDelete={handleDelete}
-                    >
-                        <FormGroup title="Details">
-                            <TextField label="Name" field="name" required />
-                            <DropDownField<Endorsement>
-                                label="State"
-                                field="state"
-                                required
-                                options={stateOptionsWithEmpty}
-                            />
-                            <TextField
-                                label="Description"
-                                field="description"
-                                required
-                            />
-                            <TextField
-                                label="Candidate Link"
-                                field="candidateLink"
-                            />
-                            <TextField label="Link Label" field="linkLabel" />
-                            <ImageField
-                                label="Image"
-                                field="imgUrl"
+                <Form<Endorsement>
+                    key={selectedEndorsement?.id}
+                    className={styles.detailsContent}
+                    form={selectedEndorsement}
+                    title={
+                        formState?.mode == 'create'
+                            ? 'New Endorsement'
+                            : (selectedEndorsement?.name ?? 'Endorsement')
+                    }
+                    saving={
+                        createMutation.isPending || updateMutation.isPending
+                    }
+                    onUpdate={setFormState}
+                    onSave={handleSave}
+                    onCreate={handleCreate}
+                    onDelete={handleDelete}
+                    beforeHeader={
+                        selectedEndorsement ? (
+                            <EndorsementBanner
+                                endorsement={
+                                    formState?.form ?? selectedEndorsement
+                                }
                                 uploadImage={endorsementQueries.uploadImage}
+                                containerClassName={styles.detailsHeader}
+                                coverClassName={styles.bannerCover}
                             />
-                        </FormGroup>
+                        ) : undefined
+                    }
+                >
+                    <FormGroup title="Details">
+                        <TextField label="Name" field="name" required />
+                        <DropDownField<Endorsement>
+                            label="State"
+                            field="state"
+                            required
+                            options={stateOptionsWithEmpty}
+                        />
+                        <TextField
+                            label="Description"
+                            field="description"
+                            required
+                        />
+                        <TextField
+                            label="Candidate Link"
+                            field="candidateLink"
+                        />
+                        <TextField label="Link Label" field="linkLabel" />
+                        <ImageField
+                            label="Image"
+                            field="imgUrl"
+                            uploadImage={endorsementQueries.uploadImage}
+                        />
+                    </FormGroup>
 
-                        <FormGroup title="Elections">
-                            <DateField
-                                label="General Election"
-                                field="generalElection"
-                                format={{ dateStyle: 'medium' }}
-                            />
-                            <DateField
-                                label="Primary Election"
-                                field="primaryElection"
-                                format={{ dateStyle: 'medium' }}
-                            />
-                        </FormGroup>
+                    <FormGroup title="Elections">
+                        <DateField
+                            label="General Election"
+                            field="generalElection"
+                            format={{ dateStyle: 'medium' }}
+                        />
+                        <DateField
+                            label="Primary Election"
+                            field="primaryElection"
+                            format={{ dateStyle: 'medium' }}
+                        />
+                    </FormGroup>
 
-                        <FormGroup title="Classification">
-                            <DropDownField<Endorsement>
-                                label="Initiative Level"
-                                getter={(form) => form.initiativeLevel}
-                                setter={(form, field) => {
-                                    const initiativeLevel = Number(
-                                        field
-                                    ) as InitiativeType
-                                    return {
-                                        ...form,
-                                        initiativeLevel,
-                                        isStateInitiative:
-                                            initiativeLevel ===
-                                            InitiativeType.State,
-                                        isNationalInitiative:
-                                            initiativeLevel ===
-                                            InitiativeType.National,
-                                    }
-                                }}
-                                options={initiativeLevelOptions}
-                            />
-                            <DropDownField<Endorsement>
-                                label="Endorsement Level"
-                                getter={(form) => form.endorsementLevel}
-                                setter={(form, field) => {
-                                    const endorsementLevel = Number(
-                                        field
-                                    ) as EndorsementType
-                                    return {
-                                        ...form,
-                                        endorsementLevel,
-                                        tookPvPledge:
-                                            endorsementLevel ===
-                                            EndorsementType.PVPledge
-                                                ? true
-                                                : form.tookPvPledge,
-                                    }
-                                }}
-                                options={endorsementLevelOptions}
-                            />
-                            <DropDownField<Endorsement>
-                                label="Avatar Background"
-                                getter={(form) => form.avatarBgColor}
-                                setter={(form, field) => ({
+                    <FormGroup title="Classification">
+                        <DropDownField<Endorsement>
+                            label="Initiative Level"
+                            getter={(form) => form.initiativeLevel}
+                            setter={(form, field) => {
+                                const initiativeLevel = Number(
+                                    field
+                                ) as InitiativeType
+                                return {
                                     ...form,
-                                    avatarBgColor: Number(
-                                        field
-                                    ) as BackgroundColor,
-                                })}
-                                options={avatarBgColorOptions}
-                            />
-                            <DropDownField<Endorsement>
-                                label="Election Status"
-                                getter={(form) => form.electionStatus}
-                                setter={(form, field) => ({
+                                    initiativeLevel,
+                                    isStateInitiative:
+                                        initiativeLevel ===
+                                        InitiativeType.State,
+                                    isNationalInitiative:
+                                        initiativeLevel ===
+                                        InitiativeType.National,
+                                }
+                            }}
+                            options={initiativeLevelOptions}
+                        />
+                        <DropDownField<Endorsement>
+                            label="Endorsement Level"
+                            getter={(form) => form.endorsementLevel}
+                            setter={(form, field) => {
+                                const endorsementLevel = Number(
+                                    field
+                                ) as EndorsementType
+                                return {
                                     ...form,
-                                    electionStatus: Number(
-                                        field
-                                    ) as ElectionStatus,
-                                })}
-                                options={electionStatusOptions}
-                            />
-                            <CheckboxField
-                                label="PV Member"
-                                field="isPvMember"
-                            />
-                            <CheckboxField
-                                label="Took PV Pledge"
-                                field="tookPvPledge"
-                            />
-                        </FormGroup>
-                    </Form>
-                </div>
+                                    endorsementLevel,
+                                }
+                            }}
+                            options={endorsementLevelOptions}
+                        />
+                        <DropDownField<Endorsement>
+                            label="Avatar Background"
+                            getter={(form) => form.avatarBgColor}
+                            setter={(form, field) => ({
+                                ...form,
+                                avatarBgColor: Number(field) as BackgroundColor,
+                            })}
+                            options={avatarBgColorOptions}
+                        />
+                        <DropDownField<Endorsement>
+                            label="Election Status"
+                            getter={(form) => form.electionStatus}
+                            setter={(form, field) => ({
+                                ...form,
+                                electionStatus: Number(field) as ElectionStatus,
+                            })}
+                            options={electionStatusOptions}
+                        />
+                        <CheckboxField label="PV Member" field="isPvMember" />
+                        <CheckboxField
+                            label="Publish Endorsement"
+                            field="tookPvPledge"
+                        />
+                    </FormGroup>
+                </Form>
             </div>
         </>
     )
@@ -534,15 +547,13 @@ interface ImageFieldProps extends FormFieldProps<Endorsement, string> {
 }
 
 function ImageField(props: ImageFieldProps) {
-    const { getter, onChange, readonly } = useConfigure(
+    const { onChange, readonly } = useConfigure(
         props,
         useCallback(
             (field: string) => !props.required || !!field?.trim(),
             [props.required]
         )
     )
-
-    const value = getter(props.dynamic!.form) ?? ''
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -557,9 +568,11 @@ function ImageField(props: ImageFieldProps) {
         try {
             const { url } = await props.uploadImage(file)
             onChange(url)
-        } catch (err) {
+        } catch (uploadError) {
             setError(
-                err instanceof Error ? err.message : 'Failed to upload image'
+                uploadError instanceof Error
+                    ? uploadError.message
+                    : 'Failed to upload image'
             )
         } finally {
             setUploading(false)
@@ -569,10 +582,6 @@ function ImageField(props: ImageFieldProps) {
     return (
         <FormField {...props}>
             <div className={styles.imageField}>
-                {value && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={value} alt="" className={styles.imagePreview} />
-                )}
                 {!readonly && (
                     <label className={styles.uploadButton}>
                         {uploading ? 'Uploading…' : 'Upload Image'}
